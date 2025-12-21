@@ -21,12 +21,16 @@ fn Button(_: ()) -> Box<dyn Element> {
 			border_width={1}
 			border_color={(0xff, 0xff, 0xff, 0x20)}
 			on_click={move || set_count(count + 1)}
+
 			style_if_hovered={|s| s.background_color((0xff, 0xff, 0xff, 0x20))}
 			style_if_pressed={|s| s.background_color((0xff, 0xff, 0xff, 0x40))}
 			style_if_focused={|s| s.border_width(4).border_color((0x04, 0x36, 0x82, 0xff))}
 			clickable_ref={clickable_ref}
+
 			focusable
 		>
+
+
 			<text color={(255, 255, 255, 255)} font_family="UbuntuSans NF">
 				{format!("Count: {}", count)}
 			</text>

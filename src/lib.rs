@@ -1,4 +1,4 @@
-use std::{cell::RefCell, ops::Deref, rc::Rc};
+use std::{cell::RefCell, ops::Deref, rc::Rc, time::Instant};
 
 mod clay_renderer;
 mod element;
@@ -6,6 +6,7 @@ mod focus_system;
 mod font_manager;
 mod input;
 mod render_context;
+mod util;
 mod window_options;
 mod winit;
 use clay_layout::{
@@ -20,6 +21,7 @@ pub use hyprui_rsml_compiler::rsml;
 pub(crate) use input::winit_impl::WinitInputManager;
 pub use input::{InputManager, NamedKey, NativeKey};
 pub use render_context::RenderContext;
+pub use util::frame_pool::{FrameAllocator, FramePool};
 pub use window_options::WindowOptions;
 
 use crate::{
@@ -29,6 +31,34 @@ use crate::{
 	input::Key,
 	winit::{Callbacks, WinitApp},
 };
+
+/// Internal helpers used by the `rsml!` macro expansion.
+///
+/// These are intentionally small identity macros so the expanded code contains
+/// a "real" Rust macro invocation around expressions/booleans, which can improve
+/// tooling behavior in some editors.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __rsml_expr {
+	($e:expr) => { $e };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __rsml_bool {
+	($b:expr) => { $b };
+}
+
+/// Custom render data used to extend Clay with effects that are not supported by
+/// the core library (e.g. CSS-like `backdrop-filter` blur).
+///
+/// This is a struct (not an enum) so multiple effects/properties can be combined
+/// on the same element (CSS-like "mix and match").
+#[derive(Debug, Clone, Default)]
+pub struct CustomElementData {
+	/// CSS-like `backdrop-filter: blur(px)`.
+	pub backdrop_blur: Option<f32>,
+}
 
 pub mod layer_shell {
 	pub use crate::window_options::{Anchor, KeyboardInteractivity, LayerShellOptions};
@@ -123,8 +153,20 @@ pub fn create_window<Props: Clone + 'static>(
 				let clay = Rc::clone(&clay);
 				let props = props.clone();
 				let input_manager = Rc::clone(&input_manager);
+
+				// `FramePool` lives for the lifetime of this callback and is reset every frame,
+				// matching the `tibs` pattern.
+				let mut frame_pool: FramePool<'static> = FramePool::new();
+
 				Box::new(move |canvas| {
+
 					let mut clay = clay.borrow_mut();
+
+					// Reset frame pool at the start of the frame so allocations from the previous
+					// frame are dropped only after they are guaranteed unused.
+					frame_pool.reset();
+					let frame_alloc = frame_pool.begin_alloc();
+
 					let mut input_manager_ref = input_manager.borrow_mut();
 					GLOBAL_FOCUS_MANAGER.with_borrow_mut(|f| {
 						f.add_root();
@@ -147,19 +189,79 @@ pub fn create_window<Props: Clone + 'static>(
 					});
 					font_manager.update_clay_measure_function(&mut clay);
 					let root_component = Component::new(component, props.clone());
+					let instant = Instant::now();
 
-					{
+					let commands = {
 						let mut c = clay.begin();
 
 						let mut render_ctx = RenderContext {
 							c: &mut c,
 							font_manager: &mut font_manager,
 							input_manager: input_manager_ref.deref(),
+							frame_alloc: &frame_alloc,
 						};
 						root_component.render(&mut render_ctx);
 
-						clay_skia_render::<()>(canvas, c.end(), |_, _, _| {}, &font_manager.get_fonts());
-					}
+						c.end()
+					};
+
+					let elapsed = instant.elapsed();
+					let fonts = font_manager.get_fonts();
+					clay_skia_render::<CustomElementData>(
+						canvas,
+						commands,
+						|command, custom, canvas| {
+							use clay_layout::render_commands::CornerRadii;
+							use skia_safe::{ClipOp, Paint, Point, RRect, Rect};
+
+							let Some(mut surface) = (unsafe { canvas.surface() }) else {
+								return;
+							};
+							let snapshot = surface.image_snapshot();
+
+							if let Some(sigma) = custom.data.backdrop_blur {
+								let bb = command.bounding_box;
+								let bounds = Rect::from_xywh(bb.x, bb.y, bb.width, bb.height);
+
+								let CornerRadii {
+									top_left,
+									top_right,
+									bottom_left,
+									bottom_right,
+								} = custom.corner_radii.clone();
+
+								let rrect = RRect::new_rect_radii(
+									bounds,
+									&[
+										Point::new(top_left, top_left),
+										Point::new(top_right, top_right),
+										Point::new(bottom_left, bottom_left),
+										Point::new(bottom_right, bottom_right),
+									],
+								);
+
+								canvas.save();
+								canvas.clip_rrect(rrect, ClipOp::Intersect, true);
+
+								let mut paint = Paint::default();
+								paint.set_anti_alias(true);
+
+								if let Some(filter) =
+									skia_safe::image_filters::blur((sigma, sigma), None, None, None)
+								{
+									paint.set_image_filter(filter);
+								}
+
+								// CSS-like `backdrop-filter`: blur the already-rendered surface behind
+								// the element, clipped to its rounded rect.
+								canvas.draw_image(snapshot, (0.0, 0.0), Some(&paint));
+
+								canvas.restore();
+							}
+						},
+						&fonts,
+					);
+
 					input_manager_ref.update();
 				})
 			},

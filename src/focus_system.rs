@@ -117,7 +117,6 @@ impl FocusManager {
 	}
 
 	pub fn focus_next(&mut self) {
-		println!("focus_next");
 
 		let mut next = self
 			.current

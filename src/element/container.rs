@@ -7,9 +7,9 @@ use crate::{Component, element::Element};
 use crate::{begin_component, end_component, use_ref};
 use clay_layout::{
 	Color, Declaration,
-	elements::{FloatingAttachPointType, FloatingAttachToElement, PointerCaptureMode},
 	layout::{Alignment, LayoutDirection, Padding},
 	math::{Dimensions, Vector2},
+	elements::{FloatingAttachPointType, FloatingAttachToElement, PointerCaptureMode},
 };
 use clickable::Clickable;
 pub use clickable::ClickableState;
@@ -112,6 +112,12 @@ pub struct ContainerStyle {
 
 	/// If set, enables Clay "floating" mode and forwards these options into the `Declaration`.
 	pub floating: Option<FloatingOptions>,
+
+	/// If set, emits a custom Clay element that applies a CSS-like backdrop blur effect
+	/// (blur the already-rendered background behind this container, clipped to its border radius).
+	///
+	/// The value is blur sigma in pixels (CSS `backdrop-filter: blur(px)`-like).
+	pub backdrop_blur: Option<f32>,
 }
 impl Default for ContainerStyle {
 	fn default() -> Self {
@@ -131,6 +137,7 @@ impl Default for ContainerStyle {
 			clip_y: false,
 
 			floating: None,
+			backdrop_blur: None,
 		}
 	}
 }
@@ -315,6 +322,20 @@ impl Container {
 		self
 	}
 
+	/// Enables/disables CSS-like backdrop blur for this container.
+	///
+	/// In RSML:
+	/// - `backdrop_blur={12.0}` enables blur
+	/// - `backdrop_blur={0.0}` disables blur
+	pub fn backdrop_blur(mut self, sigma: f32) -> Self {
+		if sigma > 0.0 {
+			self.style.backdrop_blur = Some(sigma);
+		} else {
+			self.style.backdrop_blur = None;
+		}
+		self
+	}
+
 	/// Sets Clay floating offset. Accepts either a `Vector2` or `(f32, f32)`.
 	pub fn floating_offset(mut self, offset: impl Into<Vector2>) -> Self {
 		let floating = self.style.floating.get_or_insert_with(FloatingOptions::default);
@@ -344,11 +365,14 @@ impl Container {
 	}
 
 	/// Sets Clay floating attach points (element attach point, then parent attach point).
+	///
+	/// This tuple-based signature is intentionally RSML-friendly:
+	/// `floating_attach_points={(FloatingAttachPointType::CenterCenter, FloatingAttachPointType::CenterCenter)}`
 	pub fn floating_attach_points(
 		mut self,
-		element: FloatingAttachPointType,
-		parent: FloatingAttachPointType,
+		attach_points: (FloatingAttachPointType, FloatingAttachPointType),
 	) -> Self {
+		let (element, parent) = attach_points;
 		let floating = self.style.floating.get_or_insert_with(FloatingOptions::default);
 		floating.attach_points = FloatingAttachPoints { element, parent };
 		self
@@ -719,6 +743,20 @@ impl Element for Container {
 						.pointer_capture_mode(floating.pointer_capture_mode)
 						.end();
 				}
+
+				if let Some(sigma) = effective_style.backdrop_blur {
+					// Emit a custom element so the renderer can apply a CSS-like backdrop blur.
+					//
+					// IMPORTANT: Clay stores a raw pointer to the custom data. The data must outlive
+					// this frame's render command iteration, so we allocate it using the per-frame
+					// allocator and only pass Clay a reference to the allocated value.
+					let data_ref = ctx.frame_alloc.alloc(crate::CustomElementData {
+						backdrop_blur: Some(sigma),
+						..Default::default()
+					});
+					declaration.custom_element(data_ref);
+				}
+
 				let mut scroll_offset = c.scroll_offset();
 				if !effective_style.scroll_x {
 					scroll_offset.x = 0.;
@@ -734,6 +772,7 @@ impl Element for Container {
 					c,
 					font_manager: &mut *ctx.font_manager,
 					input_manager: ctx.input_manager,
+					frame_alloc: ctx.frame_alloc,
 				};
 				for child in &self.children {
 					child.render(&mut child_ctx);

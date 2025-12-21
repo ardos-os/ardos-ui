@@ -2,6 +2,7 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::GlobalClosure;
@@ -54,7 +55,31 @@ pub fn end_component() {
 	});
 }
 
-pub type State<T> = (T, Box<dyn Fn(T)>);
+#[derive(Clone)]
+pub struct StateSetter<T>(Rc<dyn Fn(T)>);
+
+impl<T> StateSetter<T> {
+	#[inline]
+	pub fn new(f: Rc<dyn Fn(T)>) -> Self {
+		Self(f)
+	}
+
+	#[inline]
+	pub fn set(&self, value: T) {
+		(self.0)(value)
+	}
+}
+
+impl<T> Deref for StateSetter<T> {
+	type Target = dyn Fn(T);
+
+	#[inline]
+	fn deref(&self) -> &Self::Target {
+		&*self.0
+	}
+}
+
+pub type State<T> = (T, StateSetter<T>);
 
 pub type Entity<T> = (Rc<RefCell<T>>, Box<dyn Fn(&dyn Fn(&mut T))>);
 /// React-style state hook for persistent, reactive state in a component.
@@ -93,16 +118,17 @@ pub fn use_state<T: Clone + 'static>(initial: T) -> State<T> {
 			.clone()
 	});
 
-	let setter = move |new_value: T| {
+	let key_for_setter = key.clone();
+	let setter_rc: Rc<dyn Fn(T)> = Rc::new(move |new_value: T| {
 		HOOK_STATES.with(|states| {
 			let mut states = states.borrow_mut();
-			states.insert(key.clone(), Box::new(new_value));
+			states.insert(key_for_setter.clone(), Box::new(new_value));
 		});
 
 		crate::REQUEST_REDRAW.call();
-	};
+	});
 
-	(current_value, Box::new(setter))
+	(current_value, StateSetter::new(setter_rc))
 }
 
 pub fn use_entity<T: 'static>(initial: impl FnOnce() -> T) -> Entity<T> {
