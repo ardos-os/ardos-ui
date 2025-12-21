@@ -7,12 +7,59 @@ use crate::{Component, element::Element};
 use crate::{begin_component, end_component, use_ref};
 use clay_layout::{
 	Color, Declaration,
-	layout::{Alignment, LayoutDirection, Padding, Sizing},
+	elements::{FloatingAttachPointType, FloatingAttachToElement, PointerCaptureMode},
+	layout::{Alignment, LayoutDirection, Padding},
+	math::{Dimensions, Vector2},
 };
 use clickable::Clickable;
 pub use clickable::ClickableState;
 pub type Justify = clay_layout::layout::LayoutAlignmentX;
 pub type Align = clay_layout::layout::LayoutAlignmentY;
+pub type Sizing = clay_layout::layout::Sizing;
+
+// Note: we intentionally use `clay_layout`'s floating enums directly (imported above)
+// to avoid type mismatches when forwarding to `Declaration::floating()`.
+
+#[derive(Debug, Clone, Copy)]
+pub struct FloatingAttachPoints {
+	pub element: FloatingAttachPointType,
+	pub parent: FloatingAttachPointType,
+}
+
+impl Default for FloatingAttachPoints {
+	fn default() -> Self {
+		Self {
+			element: FloatingAttachPointType::LeftTop,
+			parent: FloatingAttachPointType::LeftTop,
+		}
+	}
+}
+
+/// Options forwarded to Clay's floating configuration via `Declaration::floating()`.
+#[derive(Debug, Clone)]
+pub struct FloatingOptions {
+	pub offset: Vector2,
+	pub dimensions: Dimensions,
+	pub z_index: i16,
+	pub parent_id: u32,
+	pub attach_points: FloatingAttachPoints,
+	pub attach_to: FloatingAttachToElement,
+	pub pointer_capture_mode: PointerCaptureMode,
+}
+
+impl Default for FloatingOptions {
+	fn default() -> Self {
+		Self {
+			offset: Vector2::new(0.0, 0.0),
+			dimensions: Dimensions::new(0.0, 0.0),
+			z_index: 0,
+			parent_id: 0,
+			attach_points: Default::default(),
+			attach_to: FloatingAttachToElement::None,
+			pointer_capture_mode: PointerCaptureMode::Capture,
+		}
+	}
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Direction {
@@ -58,6 +105,13 @@ pub struct ContainerStyle {
 	pub direction: Direction,
 	pub padding: (u16, u16, u16, u16),
 	pub border: Border,
+	pub scroll_x: bool,
+	pub scroll_y: bool,
+	pub clip_x: bool,
+	pub clip_y: bool,
+
+	/// If set, enables Clay "floating" mode and forwards these options into the `Declaration`.
+	pub floating: Option<FloatingOptions>,
 }
 impl Default for ContainerStyle {
 	fn default() -> Self {
@@ -71,94 +125,130 @@ impl Default for ContainerStyle {
 			justify: Justify::Left,
 			direction: Direction::Column,
 			border: Default::default(),
+			scroll_x: false,
+			scroll_y: false,
+			clip_x: false,
+			clip_y: false,
+
+			floating: None,
 		}
 	}
 }
 impl ContainerStyle {
- pub fn background_color(mut self, color: impl Into<Color>) -> Self {
-  self.background_color = color.into();
-  self
- }
+	pub fn clip_x(mut self, clip_x: bool) -> Self {
+		self.clip_x = clip_x;
+		self
+	}
 
- pub fn border_radius(mut self, top_left: f32, top_right: f32, bottom_left: f32, bottom_right: f32) -> Self {
-  self.border_radius = (top_left, top_right, bottom_left, bottom_right);
-  self
- }
+	/// Enables Clay floating mode for this container.
+	pub fn floating(mut self, floating: FloatingOptions) -> Self {
+		self.floating = Some(floating);
+		self
+	}
 
- pub fn size(mut self, width: Sizing, height: Sizing) -> Self {
-  self.size = (width, height);
-  self
- }
+	pub fn clip_y(mut self, clip_y: bool) -> Self {
+		self.clip_y = clip_y;
+		self
+	}
 
- pub fn gap(mut self, gap: u16) -> Self {
-  self.gap = gap;
-  self
- }
+	pub fn background_color(mut self, color: impl Into<Color>) -> Self {
+		self.background_color = color.into();
+		self
+	}
 
- pub fn align(mut self, align: Align) -> Self {
-  self.align = align;
-  self
- }
+	pub fn border_radius(
+		mut self,
+		top_left: f32,
+		top_right: f32,
+		bottom_left: f32,
+		bottom_right: f32,
+	) -> Self {
+		self.border_radius = (top_left, top_right, bottom_left, bottom_right);
+		self
+	}
 
- pub fn justify(mut self, justify: Justify) -> Self {
-  self.justify = justify;
-  self
- }
+	pub fn size(mut self, width: Sizing, height: Sizing) -> Self {
+		self.size = (width, height);
+		self
+	}
 
- pub fn direction(mut self, direction: Direction) -> Self {
-  self.direction = direction;
-  self
- }
+	pub fn gap(mut self, gap: u16) -> Self {
+		self.gap = gap;
+		self
+	}
 
- pub fn padding(mut self, left: u16, right: u16, top: u16, bottom: u16) -> Self {
-  self.padding = (left, right, top, bottom);
-  self
- }
+	pub fn align(mut self, align: Align) -> Self {
+		self.align = align;
+		self
+	}
 
- pub fn border(mut self, border: Border) -> Self {
-  self.border = border;
-  self
- }
+	pub fn justify(mut self, justify: Justify) -> Self {
+		self.justify = justify;
+		self
+	}
 
- pub fn border_color(mut self, color: impl Into<Color>) -> Self {
-  self.border.color = color.into();
-  self
- }
+	pub fn direction(mut self, direction: Direction) -> Self {
+		self.direction = direction;
+		self
+	}
 
- pub fn border_width(mut self, width: u16) -> Self {
-  self.border.width.left = width;
-  self.border.width.right = width;
-  self.border.width.top = width;
-  self.border.width.bottom = width;
-  self
- }
+	pub fn padding(mut self, left: u16, right: u16, top: u16, bottom: u16) -> Self {
+		self.padding = (left, right, top, bottom);
+		self
+	}
 
- pub fn border_left(mut self, width: u16) -> Self {
-  self.border.width.left = width;
-  self
- }
+	pub fn border(mut self, border: Border) -> Self {
+		self.border = border;
+		self
+	}
 
- pub fn border_right(mut self, width: u16) -> Self {
-  self.border.width.right = width;
-  self
- }
+	pub fn border_color(mut self, color: impl Into<Color>) -> Self {
+		self.border.color = color.into();
+		self
+	}
 
- pub fn border_top(mut self, width: u16) -> Self {
-  self.border.width.top = width;
-  self
- }
+	pub fn border_width(mut self, width: u16) -> Self {
+		self.border.width.left = width;
+		self.border.width.right = width;
+		self.border.width.top = width;
+		self.border.width.bottom = width;
+		self
+	}
 
- pub fn border_bottom(mut self, width: u16) -> Self {
-  self.border.width.bottom = width;
-  self
- }
+	pub fn border_left(mut self, width: u16) -> Self {
+		self.border.width.left = width;
+		self
+	}
 
- pub fn border_between_children(mut self, width: u16) -> Self {
-  self.border.width.between_children = width;
-  self
- }
+	pub fn border_right(mut self, width: u16) -> Self {
+		self.border.width.right = width;
+		self
+	}
+
+	pub fn border_top(mut self, width: u16) -> Self {
+		self.border.width.top = width;
+		self
+	}
+
+	pub fn border_bottom(mut self, width: u16) -> Self {
+		self.border.width.bottom = width;
+		self
+	}
+
+	pub fn border_between_children(mut self, width: u16) -> Self {
+		self.border.width.between_children = width;
+		self
+	}
+	pub fn scroll_x(mut self, scroll_x: bool) -> Self {
+		self.scroll_x = scroll_x;
+		self
+	}
+
+	pub fn scroll_y(mut self, scroll_y: bool) -> Self {
+		self.scroll_y = scroll_y;
+		self
+	}
 }
-
 
 /// A generic container element that can hold other elements.
 ///
@@ -199,6 +289,85 @@ impl Container {
 	pub fn new() -> Self {
 		Self::default()
 	}
+
+	// --- Floating (Clay) ----------------------------------------------------
+	//
+	// These are Container builder methods (not ContainerStyle) so they can be used
+	// directly from RSML attributes like:
+	// <container floating floating_offset={(10.0, 20.0)} floating_z_index={10} />
+	//
+	// Each setter lazily initializes `style.floating` to defaults.
+
+	/// Enables/disables Clay floating mode for this container.
+	///
+	/// HTML-like semantics in RSML:
+	/// - `floating` => `floating(true)`
+	/// - `floating={true}` => `floating(true)`
+	/// - `floating={false}` => `floating(false)`
+	pub fn floating(mut self, enabled: bool) -> Self {
+		if enabled {
+			if self.style.floating.is_none() {
+				self.style.floating = Some(FloatingOptions::default());
+			}
+		} else {
+			self.style.floating = None;
+		}
+		self
+	}
+
+	/// Sets Clay floating offset. Accepts either a `Vector2` or `(f32, f32)`.
+	pub fn floating_offset(mut self, offset: impl Into<Vector2>) -> Self {
+		let floating = self.style.floating.get_or_insert_with(FloatingOptions::default);
+		floating.offset = offset.into();
+		self
+	}
+
+	/// Sets Clay floating dimensions. Accepts either `Dimensions` or `(f32, f32)`.
+	pub fn floating_dimensions(mut self, dimensions: impl Into<Dimensions>) -> Self {
+		let floating = self.style.floating.get_or_insert_with(FloatingOptions::default);
+		floating.dimensions = dimensions.into();
+		self
+	}
+
+	/// Sets Clay floating Z-index.
+	pub fn floating_z_index(mut self, z_index: i16) -> Self {
+		let floating = self.style.floating.get_or_insert_with(FloatingOptions::default);
+		floating.z_index = z_index;
+		self
+	}
+
+	/// Sets Clay floating parent ID.
+	pub fn floating_parent_id(mut self, parent_id: u32) -> Self {
+		let floating = self.style.floating.get_or_insert_with(FloatingOptions::default);
+		floating.parent_id = parent_id;
+		self
+	}
+
+	/// Sets Clay floating attach points (element attach point, then parent attach point).
+	pub fn floating_attach_points(
+		mut self,
+		element: FloatingAttachPointType,
+		parent: FloatingAttachPointType,
+	) -> Self {
+		let floating = self.style.floating.get_or_insert_with(FloatingOptions::default);
+		floating.attach_points = FloatingAttachPoints { element, parent };
+		self
+	}
+
+	/// Sets Clay floating attach-to mode.
+	pub fn floating_attach_to(mut self, attach_to: FloatingAttachToElement) -> Self {
+		let floating = self.style.floating.get_or_insert_with(FloatingOptions::default);
+		floating.attach_to = attach_to;
+		self
+	}
+
+	/// Sets Clay floating pointer capture mode.
+	pub fn floating_pointer_capture_mode(mut self, mode: PointerCaptureMode) -> Self {
+		let floating = self.style.floating.get_or_insert_with(FloatingOptions::default);
+		floating.pointer_capture_mode = mode;
+		self
+	}
+
 	pub fn clickable_ref(mut self, state: Rc<RefCell<ClickableState>>) -> Self {
 		self.clickable_state = state;
 		self
@@ -225,17 +394,60 @@ impl Container {
 	}
 
 	pub fn w_expand(mut self) -> Self {
-		self.style.size.0 = Sizing::Grow(0., f32::MAX);
+		self.style.size.0 = match self.style.size.0 {
+			Sizing::Fit(min, max) => Sizing::Grow(min, max),
+			Sizing::Fixed(size) => Sizing::Grow(size, size),
+			Sizing::Grow(min, max) => Sizing::Grow(min, max),
+			o => o,
+		};
 		self
 	}
 	pub fn h_expand(mut self) -> Self {
-		self.style.size.1 = Sizing::Grow(0., f32::MAX);
+		self.style.size.1 = match self.style.size.1 {
+			Sizing::Fit(min, max) => Sizing::Grow(min, max),
+			Sizing::Fixed(size) => Sizing::Grow(size, size),
+			Sizing::Grow(min, max) => Sizing::Grow(min, max),
+			o => o,
+		};
 		self
 	}
 	pub fn w_fit(mut self) -> Self {
-		self.style.size.0 = Sizing::Fit(0., f32::MAX);
+		self.style.size.0 = match self.style.size.0 {
+			Sizing::Fit(min, max) => Sizing::Fit(min, max),
+			Sizing::Fixed(size) => Sizing::Fit(size, size),
+			Sizing::Grow(min, max) => Sizing::Fit(min, max),
+			o => o,
+		};
 		self
 	}
+	pub fn h_fit(mut self) -> Self {
+		self.style.size.1 = match self.style.size.1 {
+			Sizing::Fit(min, max) => Sizing::Fit(min, max),
+			Sizing::Fixed(size) => Sizing::Fit(size, size),
+			Sizing::Grow(min, max) => Sizing::Fit(min, max),
+			o => o,
+		};
+		self
+	}
+	pub fn w_fixed(mut self, width: f32) -> Self {
+		self.style.size.0 = Sizing::Fixed(width);
+		self
+	}
+	pub fn h_fixed(mut self, height: f32) -> Self {
+		self.style.size.1 = Sizing::Fixed(height);
+		self
+	}
+
+	pub fn w_percent(mut self, percentage: f32) -> Self {
+		self.style.size.0 = Sizing::Percent(percentage);
+		self
+	}
+
+	pub fn h_percent(mut self, percentage: f32) -> Self {
+		self.style.size.1 = Sizing::Percent(percentage);
+		self
+	}
+
 	pub fn min_width(mut self, width: f32) -> Self {
 		self.style.size.0 = match self.style.size.0 {
 			Sizing::Fit(_, max) => Sizing::Fit(width, max),
@@ -275,7 +487,14 @@ impl Container {
 		};
 		self
 	}
-
+	pub fn fixed_width(mut self, width: f32) -> Self {
+		self.style.size.0 = Sizing::Fixed(width);
+		self
+	}
+	pub fn fixed_height(mut self, height: f32) -> Self {
+		self.style.size.1 = Sizing::Fixed(height);
+		self
+	}
 	pub fn gap(mut self, gap: u16) -> Self {
 		self.style.gap = gap;
 		self
@@ -412,6 +631,24 @@ impl Container {
 		self.style.border.width.between_children = width;
 		self
 	}
+
+	pub fn scroll_x(mut self, scroll_x: bool) -> Self {
+		self.style.scroll_x = scroll_x;
+		self
+	}
+
+	pub fn scroll_y(mut self, scroll_y: bool) -> Self {
+		self.style.scroll_y = scroll_y;
+		self
+	}
+	pub fn clip_x(mut self, clip_x: bool) -> Self {
+		self.style.clip_x = clip_x;
+		self
+	}
+	pub fn clip_y(mut self, clip_y: bool) -> Self {
+		self.style.clip_y = clip_y;
+		self
+	}
 }
 
 impl Element for Container {
@@ -433,7 +670,6 @@ impl Element for Container {
 				}
 				if clickable_state.is_focused() {
 					effective_style = (self.style_if_focused)(effective_style);
-					println!("is_focused")
 				}
 				declaration
 					.layout()
@@ -470,6 +706,27 @@ impl Element for Container {
 					.left(effective_style.border.width.left)
 					.end()
 					.background_color(effective_style.background_color);
+
+				if let Some(floating) = &effective_style.floating {
+					declaration
+						.floating()
+						.offset(floating.offset)
+						.dimensions(floating.dimensions)
+						.z_index(floating.z_index)
+						.parent_id(floating.parent_id)
+						.attach_points(floating.attach_points.element, floating.attach_points.parent)
+						.attach_to(floating.attach_to.clone())
+						.pointer_capture_mode(floating.pointer_capture_mode)
+						.end();
+				}
+				let mut scroll_offset = c.scroll_offset();
+				if !effective_style.scroll_x {
+					scroll_offset.x = 0.;
+				}
+				if !effective_style.scroll_y {
+					scroll_offset.y = 0.;
+				}
+				declaration.clip(effective_style.scroll_x || effective_style.clip_x, effective_style.scroll_y || effective_style.clip_y, scroll_offset);
 				declaration
 			},
 			|c| {

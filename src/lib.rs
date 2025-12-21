@@ -136,7 +136,11 @@ pub fn create_window<Props: Clone + 'static>(
 							}
 						}
 
-						if (!input_manager_ref.cursor_hit_something() && (input_manager_ref.is_mouse_button_just_pressed(0) || input_manager_ref.is_mouse_button_just_pressed(1))) || input_manager_ref.is_key_just_pressed(Key::Named(NamedKey::Escape)) {
+						if (!input_manager_ref.cursor_hit_something()
+							&& (input_manager_ref.is_mouse_button_just_pressed(0)
+								|| input_manager_ref.is_mouse_button_just_pressed(1)))
+							|| input_manager_ref.is_key_just_pressed(Key::Named(NamedKey::Escape))
+						{
 							f.blur();
 						}
 						f.new_frame();

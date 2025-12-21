@@ -1,0 +1,25 @@
+<container
+    w_expand
+    h_expand
+    background_color={(0, 0, 0, 255)}
+    padding_all={16}
+    gap={8}
+    direction={Direction::Column}>
+
+    <container floating w_fit padding_all={4}>
+        <text>floating (bare)</text>
+    </container>
+
+    <container floating={true} w_fit padding_all={4}>
+        <text>floating=true</text>
+    </container>
+
+    <container floating={false} w_fit padding_all={4}>
+        <text>floating=false</text>
+    </container>
+
+    <container floating={1 + 1 == 2} w_fit padding_all={4}>
+        <text>floating={1+1==2}</text>
+    </container>
+
+</container>

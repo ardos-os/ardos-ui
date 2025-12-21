@@ -1,6 +1,0 @@
-    <clickable
-        key="submit_btn"
-        on_click={|| println!("Clicked!")}
-        on_hover={|| println!("Hovered!")}>
-        <text>Submit</text>
-    </clickable>

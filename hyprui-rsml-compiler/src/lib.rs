@@ -31,6 +31,8 @@
 ///     })))
 /// ```
 use proc_macro::TokenStream;
+use std::collections::HashMap;
+use std::sync::LazyLock;
 
 // ============================================================================
 // DOM DATA STRUCTURES
@@ -557,6 +559,43 @@ impl Parser {
 /// - Children → .child() calls or props.children vector
 struct CodeGenerator;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BooleanAttrKind {
+	/// 0-arg flag method (e.g. `.center()`):
+	/// - `flag` => `.flag()`
+	/// - `flag={expr}` => `if expr { .flag() } else { identity }`
+	FlagMethod,
+	/// Bool-parameter toggle method (e.g. `.floating(bool)`):
+	/// - `flag` => `.flag(true)`
+	/// - `flag={expr}` => `.flag(expr)`
+	ToggleBoolParam,
+}
+
+static BOOLEAN_ATTR_RULES: LazyLock<HashMap<(&'static str, &'static str), BooleanAttrKind>> =
+	LazyLock::new(|| {
+		let mut m = HashMap::new();
+
+		// Container-only boolean flag methods (0-arg)
+		m.insert(("container", "h_expand"), BooleanAttrKind::FlagMethod);
+		m.insert(("container", "w_expand"), BooleanAttrKind::FlagMethod);
+		m.insert(("container", "w_fit"), BooleanAttrKind::FlagMethod);
+		m.insert(("container", "center"), BooleanAttrKind::FlagMethod);
+		m.insert(("container", "focusable"), BooleanAttrKind::FlagMethod);
+		m.insert(("container", "focus_container"), BooleanAttrKind::FlagMethod);
+
+		// Text-only boolean flag methods (0-arg)
+		m.insert(("text", "text_center"), BooleanAttrKind::FlagMethod);
+		m.insert(("text", "text_right"), BooleanAttrKind::FlagMethod);
+		m.insert(("text", "text_left"), BooleanAttrKind::FlagMethod);
+
+		// Container-only bool-parameter toggle methods
+		m.insert(("container", "floating"), BooleanAttrKind::ToggleBoolParam);
+
+		m
+	});
+
+
+
 impl CodeGenerator {
 	fn new() -> Self {
 		Self
@@ -653,20 +692,47 @@ impl CodeGenerator {
 					code = format!("{}.{}(\"{}\")", code, attr.name, s);
 				}
 				Some(AttributeValue::Expression(e)) => {
-					if self.is_boolean_method(&attr.name) {
-						// Boolean method with expression: if expr { .method() } else { identity }
-						code = format!(
-							"if {} {{ {}.{}() }} else {{ {} }}",
-							e, code, attr.name, code
-						);
+					if let Some(kind) = BOOLEAN_ATTR_RULES
+						.get(&(element.tag_name.as_str(), attr.name.as_str()))
+						.copied()
+					{
+						match kind {
+							BooleanAttrKind::FlagMethod => {
+								// Boolean flag method with expression: if expr { .method() } else { identity }
+								code = format!(
+									"if {} {{ {}.{}() }} else {{ {} }}",
+									e, code, attr.name, code
+								);
+							}
+							BooleanAttrKind::ToggleBoolParam => {
+								// Bool-parameter toggle: `.method(expr)`
+								code = format!("{}.{}({})", code, attr.name, e);
+							}
+						}
 					} else {
 						// Regular method with expression: .method(expr)
 						code = format!("{}.{}({})", code, attr.name, e);
 					}
 				}
 				None => {
-					// Boolean attribute without value: .method()
-					code = format!("{}.{}()", code, attr.name);
+					if let Some(kind) = BOOLEAN_ATTR_RULES
+						.get(&(element.tag_name.as_str(), attr.name.as_str()))
+						.copied()
+					{
+						match kind {
+							BooleanAttrKind::FlagMethod => {
+								// Boolean attribute without value: `.method()`
+								code = format!("{}.{}()", code, attr.name);
+							}
+							BooleanAttrKind::ToggleBoolParam => {
+								// HTML-like boolean attribute without value: `.method(true)`
+								code = format!("{}.{}(true)", code, attr.name);
+							}
+						}
+					} else {
+						// Default: treat as 0-arg method call.
+						code = format!("{}.{}()", code, attr.name);
+					}
 				}
 			}
 		}
@@ -768,17 +834,9 @@ impl CodeGenerator {
 		}
 	}
 
-	/// Check if a method name represents a boolean flag method.
-	///
-	/// Boolean methods don't take parameters and just set a flag on the element.
-	/// When used with expressions like `center={should_center}`, they need
-	/// special conditional generation.
-	fn is_boolean_method(&self, method_name: &str) -> bool {
-		matches!(
-			method_name,
-			"h_expand" | "w_expand" | "w_fit" | "center" | "text_center" | "text_right" | "text_left" | "focusable" | "focus_container"
-		)
-	}
+
+
+
 }
 
 // ============================================================================

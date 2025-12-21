@@ -1,7 +1,8 @@
 use uuid::Uuid;
 
 use crate::{
-	begin_component, end_component, focus_system::GLOBAL_FOCUS_MANAGER, input::Key, use_entity, use_memo, use_state, Container, Element, InputManager, NamedKey
+	Container, Element, InputManager, NamedKey, begin_component, end_component,
+	focus_system::GLOBAL_FOCUS_MANAGER, input::Key, use_entity, use_memo, use_state,
 };
 
 /// Estado interno do Clickable para tracking de hover/press
@@ -64,9 +65,12 @@ impl Clickable {
 		is_hovered: bool,
 	) {
 		state.focus_node_id = self.focus_node_id;
-		state.down = (input_manager.is_mouse_button_pressed(0) && is_hovered) || (input_manager.is_key_pressed(Key::Named(NamedKey::Enter)) && state.is_focused());
-		state.right_down = (input_manager.is_mouse_button_pressed(1) && is_hovered) || (input_manager.is_key_pressed(Key::Named(NamedKey::ContextMenu)) && state.is_focused());
-		let is_clicked = (input_manager.is_mouse_button_just_pressed(0) && is_hovered) || (input_manager.is_key_just_pressed(Key::Named(NamedKey::Enter)) && state.is_focused());
+		state.down = (input_manager.is_mouse_button_pressed(0) && is_hovered)
+			|| (input_manager.is_key_pressed(Key::Named(NamedKey::Enter)) && state.is_focused());
+		state.right_down = (input_manager.is_mouse_button_pressed(1) && is_hovered)
+			|| (input_manager.is_key_pressed(Key::Named(NamedKey::ContextMenu)) && state.is_focused());
+		let is_clicked = (input_manager.is_mouse_button_just_pressed(0) && is_hovered)
+			|| (input_manager.is_key_just_pressed(Key::Named(NamedKey::Enter)) && state.is_focused());
 		if is_clicked != state.pressed {
 			state.pressed = is_clicked;
 		}
@@ -76,7 +80,9 @@ impl Clickable {
 				on_click();
 			}
 		}
-		let is_right_clicked = (input_manager.is_mouse_button_just_pressed(1) && is_hovered) || (input_manager.is_key_just_pressed(Key::Named(NamedKey::ContextMenu)) && state.is_focused());
+		let is_right_clicked = (input_manager.is_mouse_button_just_pressed(1) && is_hovered)
+			|| (input_manager.is_key_just_pressed(Key::Named(NamedKey::ContextMenu))
+				&& state.is_focused());
 		if is_right_clicked != state.right_pressed {
 			state.right_pressed = is_right_clicked;
 		}

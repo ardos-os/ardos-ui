@@ -38,7 +38,6 @@ pub trait InputManager {
 	/// Check if the user is currently using an IME
 	fn ime_is_editing(&self) -> bool;
 
-
 	fn set_cursor_clicked_something(&self);
 	fn cursor_hit_something(&self) -> bool;
 }
