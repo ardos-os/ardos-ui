@@ -4,10 +4,15 @@
 //!
 //! ## Architecture Overview
 //!
-//! The compiler follows a traditional compiler pipeline:
-//! 1. **Tokenization**: Raw RSML text → Stream of tokens
-//! 2. **Parsing**: Stream of tokens → DOM tree
-//! 3. **Code Generation**: DOM tree → Rust code string
+//! The compiler follows a token-based pipeline that preserves spans:
+//! 1. **Tokenization**: `TokenStream` → RSML tokens (with spans)
+//! 2. **Parsing**: RSML tokens → DOM tree
+//! 3. **Code Generation**: DOM tree → Rust token stream
+//!
+//! ## Notes on Diagnostics
+//!
+//! This crate prefers returning `syn::Error` with spans so errors point to the
+//! specific RSML location instead of failing the whole macro invocation.
 //!
 //! ## Example Transformation
 //!
@@ -31,8 +36,64 @@
 ///     })))
 /// ```
 use proc_macro::TokenStream;
+
+use proc_macro2::{Delimiter, Span, TokenStream as TokenStream2, TokenTree};
+use quote::quote;
 use std::collections::HashMap;
 use std::sync::LazyLock;
+use syn::Ident;
+
+/// Wrap a Rust expression token stream in HyprUI's identity macro.
+///
+/// This is intended to improve editor tooling behavior for expressions originating
+/// inside RSML `{ ... }` placeholders.
+fn wrap_rsml_expr(ts: TokenStream2) -> TokenStream2 {
+	quote! { hyprui::__rsml_expr!(#ts) }
+}
+
+/// Wrap a boolean-ish Rust expression token stream in HyprUI's identity macro.
+///
+/// This is intended to improve editor tooling behavior for boolean-driven
+/// attribute application paths.
+fn wrap_rsml_bool(ts: TokenStream2) -> TokenStream2 {
+	quote! { hyprui::__rsml_bool!(#ts) }
+}
+
+/// Simple spanned wrapper used across the tokenizer/parser/codegen pipeline.
+///
+/// Note: we intentionally do **not** derive `PartialEq`/`Eq` because `Span` does
+/// not implement those traits.
+#[derive(Debug, Clone)]
+struct Spanned<T> {
+	value: T,
+	span: Span,
+}
+
+impl<T> Spanned<T> {
+	fn new(value: T, span: Span) -> Self {
+		Self { value, span }
+	}
+}
+
+fn collapse_html_whitespace(input: &str) -> String {
+	let mut out = String::new();
+	let mut in_ws = false;
+
+	for ch in input.chars() {
+		if ch.is_whitespace() {
+			in_ws = true;
+			continue;
+		}
+
+		if in_ws && !out.is_empty() {
+			out.push(' ');
+		}
+		in_ws = false;
+		out.push(ch);
+	}
+
+	out.trim().to_string()
+}
 
 // ============================================================================
 // DOM DATA STRUCTURES
@@ -42,14 +103,14 @@ use std::sync::LazyLock;
 ///
 /// The DOM represents the parsed structure before code generation.
 /// This allows for easy inspection, transformation, and debugging.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 enum Node {
 	/// An HTML-like element: `<tag attr="value">children</tag>`
 	Element(Element),
 	/// Plain text content between tags: `Hello World`
-	Text(String),
-	/// Rust expression in braces: `{some_variable + 1}`
-	Expression(String),
+	Text(Spanned<String>),
+	/// Rust tokens in braces: `{ some_rust_expr }`
+	Expression(Spanned<TokenStream2>),
 }
 
 /// An RSML element with tag name, attributes, and children.
@@ -58,10 +119,10 @@ enum Node {
 /// - `<container />` - self-closing with no attributes
 /// - `<text font_size={16}>Hello</text>` - with attributes and text content
 /// - `<MyComponent prop="value">...</MyComponent>` - component with children
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 struct Element {
 	/// The tag name (e.g., "container", "text", "MyComponent")
-	tag_name: String,
+	tag_name: Spanned<String>,
 	/// All attributes on the element
 	attributes: Vec<Attribute>,
 	/// Child nodes (other elements, text, or expressions)
@@ -76,33 +137,30 @@ struct Element {
 /// - `disabled` - boolean attribute (no value)
 /// - `name="John"` - string literal value
 /// - `size={42}` - expression value
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 struct Attribute {
 	/// The attribute name
-	name: String,
-	/// The attribute value (None for boolean attributes)
+	name: Spanned<String>,
+	/// The attribute value (if any)
 	value: Option<AttributeValue>,
 }
 
 /// The value of an attribute.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 enum AttributeValue {
 	/// String literal: `name="value"`
-	String(String),
-	/// Rust expression: `size={variable + 1}`
-	Expression(String),
+	String(Spanned<String>),
+	/// Rust tokens: `size={variable + 1}`
+	Expression(Spanned<TokenStream2>),
 }
 
 // ============================================================================
-// TOKENIZER
+// TOKEN-TREE PARSER (SPAN-PRESERVING)
 // ============================================================================
 
-/// A token in the RSML token stream.
-///
-/// Tokens are the atomic units that the parser works with.
-/// They represent meaningful syntax elements like tags, attributes, etc.
-#[derive(Debug, Clone, PartialEq)]
-enum Token {
+/// A token kind in the RSML token stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TokenKind {
 	/// Opening tag bracket: `<`
 	OpenTag,
 	/// Closing tag bracket: `>`
@@ -111,447 +169,45 @@ enum Token {
 	SelfCloseTag,
 	/// End tag opening: `</`
 	EndOpenTag,
-	/// Identifier: tag names, attribute names, etc.
-	Identifier(String),
-	/// String literal in quotes: `"hello"` or `'hello'`
-	StringLiteral(String),
-	/// Rust expression in braces: `{code here}`
-	Expression(String),
 	/// Equals sign for attributes: `=`
 	Equals,
 	/// End of input
 	Eof,
+	/// Identifier: tag names, attribute names, etc. (only valid inside tags)
+	Identifier,
+	/// String literal in Rust form (e.g. `"hello"`). Stored as decoded string.
+	StringLiteral,
+	/// Rust tokens in braces: `{ ... }`
+	Expression,
+	/// Raw text content between tags (JSX-style text nodes)
+	Text,
 }
 
-/// Converts raw RSML text into a stream of tokens.
+/// A token with an attached span and optional payload.
 ///
-/// The tokenizer handles:
-/// - Proper brace matching for expressions `{...}`
-/// - String literal parsing with escape sequences
-/// - JSX-style tag syntax `<`, `>`, `</`, `/>`
-/// - Identifier recognition for tag and attribute names
-struct Tokenizer {
-	/// Input text as a vector of characters for easy indexing
-	input: Vec<char>,
-	/// Current position in the input
-	position: usize,
-	/// Current character being processed (None at EOF)
-	current_char: Option<char>,
+/// This crate is token-based: we do not stringify and re-parse RSML in the proc-macro path.
+#[derive(Debug, Clone)]
+struct Token {
+	kind: TokenKind,
+	span: Span,
+	payload: Option<String>,
+	/// For `{ ... }` expressions, preserve the original token stream.
+	expr_tokens: Option<TokenStream2>,
 }
 
-impl Tokenizer {
-	/// Create a new tokenizer for the given input text.
-	fn new(input: &str) -> Self {
-		let chars: Vec<char> = input.chars().collect();
-		let current_char = chars.get(0).copied();
-		Self {
-			input: chars,
-			position: 0,
-			current_char,
-		}
-	}
 
-	/// Advance to the next character in the input.
-	fn advance(&mut self) {
-		self.position += 1;
-		self.current_char = self.input.get(self.position).copied();
-	}
 
-	/// Look at the next character without advancing.
-	fn peek(&self) -> Option<char> {
-		self.input.get(self.position + 1).copied()
-	}
 
-	/// Skip over whitespace characters.
-	fn skip_whitespace(&mut self) {
-		while let Some(ch) = self.current_char {
-			if ch.is_whitespace() {
-				self.advance();
-			} else {
-				break;
-			}
-		}
-	}
-
-	/// Read an identifier (tag name, attribute name, etc.).
-	///
-	/// Identifiers can contain letters, numbers, underscores, and hyphens.
-	/// Examples: `container`, `font_size`, `MyComponent`, `data-id`
-	fn read_identifier(&mut self) -> String {
-		let mut result = String::new();
-
-		while let Some(ch) = self.current_char {
-			if ch.is_alphanumeric() || ch == '_' || ch == '-' {
-				result.push(ch);
-				self.advance();
-			} else {
-				break;
-			}
-		}
-
-		result
-	}
-
-	/// Read a string literal, handling escape sequences.
-	///
-	/// Supports both double and single quotes: `"hello"` or `'hello'`
-	/// Handles escape sequences like `\"` and `\\`
-	fn read_string_literal(&mut self) -> String {
-		let quote_char = self.current_char.unwrap(); // " or '
-		self.advance(); // skip opening quote
-
-		let mut result = String::new();
-		let mut escaped = false;
-
-		while let Some(ch) = self.current_char {
-			if escaped {
-				result.push(ch);
-				escaped = false;
-			} else if ch == '\\' {
-				escaped = true;
-				result.push(ch);
-			} else if ch == quote_char {
-				self.advance(); // skip closing quote
-				break;
-			} else {
-				result.push(ch);
-			}
-			self.advance();
-		}
-
-		result
-	}
-
-	/// Read a Rust expression inside braces: `{expression here}`
-	///
-	/// This handles proper brace matching, so expressions like `{vec![1, 2, 3]}`
-	/// or `{if condition { "yes" } else { "no" }}` are parsed correctly.
-	///
-	/// Also handles string literals inside expressions to avoid false matches.
-	fn read_expression(&mut self) -> String {
-		self.advance(); // skip opening {
-
-		let mut result = String::new();
-		let mut brace_count = 1; // We're already inside one brace
-		let mut in_string = false;
-		let mut string_char = '"';
-		let mut escaped = false;
-
-		while let Some(ch) = self.current_char {
-			if escaped {
-				result.push(ch);
-				escaped = false;
-			} else if ch == '\\' && in_string {
-				result.push(ch);
-				escaped = true;
-			} else if (ch == '"' || ch == '\'') && !in_string {
-				// Entering a string
-				in_string = true;
-				string_char = ch;
-				result.push(ch);
-			} else if ch == string_char && in_string {
-				// Exiting a string
-				in_string = false;
-				result.push(ch);
-			} else if !in_string {
-				// Only count braces when not inside a string
-				if ch == '{' {
-					brace_count += 1;
-					result.push(ch);
-				} else if ch == '}' {
-					brace_count -= 1;
-					if brace_count == 0 {
-						self.advance(); // skip closing }
-						break;
-					}
-					result.push(ch);
-				} else {
-					result.push(ch);
-				}
-			} else {
-				result.push(ch);
-			}
-			self.advance();
-		}
-
-		result
-	}
-
-	/// Get the next token from the input stream.
-	///
-	/// This is the main tokenizer method that identifies and returns
-	/// the next meaningful token in the input.
-	fn next_token(&mut self) -> Token {
-		loop {
-			match self.current_char {
-				None => return Token::Eof,
-
-				Some(ch) if ch.is_whitespace() => {
-					self.skip_whitespace();
-					continue; // Skip whitespace and continue
-				}
-
-				Some('<') => {
-					if self.peek() == Some('/') {
-						// Closing tag: </
-						self.advance(); // skip <
-						self.advance(); // skip /
-						return Token::EndOpenTag;
-					} else {
-						// Opening tag: <
-						self.advance();
-						return Token::OpenTag;
-					}
-				}
-
-				Some('/') if self.peek() == Some('>') => {
-					// Self-closing tag: />
-					self.advance(); // skip /
-					self.advance(); // skip >
-					return Token::SelfCloseTag;
-				}
-
-				Some('>') => {
-					// End of opening tag: >
-					self.advance();
-					return Token::CloseTag;
-				}
-
-				Some('=') => {
-					// Attribute assignment: =
-					self.advance();
-					return Token::Equals;
-				}
-
-				Some('"') | Some('\'') => {
-					// String literal
-					let string_val = self.read_string_literal();
-					return Token::StringLiteral(string_val);
-				}
-
-				Some('{') => {
-					// Rust expression
-					let expr = self.read_expression();
-					return Token::Expression(expr);
-				}
-
-				Some(ch) if ch.is_alphabetic() || ch == '_' => {
-					// Identifier (tag name, attribute name, etc.)
-					let ident = self.read_identifier();
-					return Token::Identifier(ident);
-				}
-
-				Some(_) => {
-					// Unknown character - skip it
-					self.advance();
-					continue;
-				}
-			}
-		}
-	}
-}
-
-// ============================================================================
-// PARSER
-// ============================================================================
-
-/// Converts a stream of tokens into a DOM tree.
-///
-/// The parser implements a recursive descent parser that recognizes
-/// the RSML grammar and builds a structured DOM representation.
-struct Parser {
-	/// The tokenizer that provides the token stream
-	tokenizer: Tokenizer,
-	/// The current token being processed
-	current_token: Token,
-}
-
-impl Parser {
-	/// Create a new parser for the given input text.
-	fn new(input: &str) -> Self {
-		let mut tokenizer = Tokenizer::new(input);
-		let current_token = tokenizer.next_token();
-		Self {
-			tokenizer,
-			current_token,
-		}
-	}
-
-	/// Advance to the next token.
-	fn advance(&mut self) {
-		self.current_token = self.tokenizer.next_token();
-	}
-
-	/// Expect a specific token and advance, or return an error.
-	///
-	/// This is used to enforce the grammar rules. For example,
-	/// after parsing a tag name, we expect to see either attributes or `>`.
-	fn expect_token(&mut self, expected: Token) -> Result<(), String> {
-		if std::mem::discriminant(&self.current_token) == std::mem::discriminant(&expected) {
-			self.advance();
-			Ok(())
-		} else {
-			Err(format!(
-				"Expected {:?}, found {:?}",
-				expected, self.current_token
-			))
-		}
-	}
-
-	/// Parse attributes from the current token position.
-	///
-	/// Attributes have the form:
-	/// - `name="value"` - string attribute
-	/// - `name={expression}` - expression attribute
-	/// - `name` - boolean attribute (no value)
-	///
-	/// Returns a vector of parsed attributes.
-	fn parse_attributes(&mut self) -> Result<Vec<Attribute>, String> {
-		let mut attributes = Vec::new();
-
-		// Keep parsing attributes while we see identifiers
-		while let Token::Identifier(name) = &self.current_token {
-			let attr_name = name.clone();
-			self.advance();
-
-			let value = if matches!(self.current_token, Token::Equals) {
-				self.advance(); // consume =
-
-				// Parse the attribute value
-				match &self.current_token {
-					Token::StringLiteral(s) => {
-						let val = Some(AttributeValue::String(s.clone()));
-						self.advance();
-						val
-					}
-					Token::Expression(e) => {
-						let val = Some(AttributeValue::Expression(e.clone()));
-						self.advance();
-						val
-					}
-					_ => return Err("Expected string literal or expression after =".to_string()),
-				}
-			} else {
-				// Boolean attribute (no value means true)
-				None
-			};
-
-			attributes.push(Attribute {
-				name: attr_name,
-				value,
-			});
-		}
-
-		Ok(attributes)
-	}
-
-	/// Parse an RSML element from the token stream.
-	///
-	/// Elements have the form:
-	/// - `<tag />` - self-closing element
-	/// - `<tag>children</tag>` - element with children
-	/// - `<tag attr="value">children</tag>` - element with attributes and children
-	///
-	/// Returns the parsed element as a Node::Element.
-	fn parse_element(&mut self) -> Result<Node, String> {
-		self.expect_token(Token::OpenTag)?; // consume <
-
-		// Get the tag name
-		let tag_name = match &self.current_token {
-			Token::Identifier(name) => name.clone(),
-			_ => return Err("Expected tag name after <".to_string()),
-		};
-		self.advance();
-
-		// Parse attributes
-		let attributes = self.parse_attributes()?;
-
-		// Check for self-closing tag
-		let self_closing = matches!(self.current_token, Token::SelfCloseTag);
-
-		if self_closing {
-			self.advance(); // consume />
-			return Ok(Node::Element(Element {
-				tag_name,
-				attributes,
-				children: vec![],
-				self_closing: true,
-			}));
-		}
-
-		// Consume the closing > of the opening tag
-		self.expect_token(Token::CloseTag)?; // consume >
-
-		let mut children = Vec::new();
-
-		// Parse children until we hit the closing tag
-		while !matches!(self.current_token, Token::EndOpenTag) {
-			match &self.current_token {
-				Token::OpenTag => {
-					// Nested element
-					children.push(self.parse_element()?);
-				}
-				Token::Expression(expr) => {
-					// Expression child: {some_expression}
-					children.push(Node::Expression(expr.clone()));
-					self.advance();
-				}
-				Token::Identifier(_) => {
-					// Text content between tags
-					if let Token::Identifier(text) = &self.current_token {
-						children.push(Node::Text(text.clone()));
-						self.advance();
-					}
-				}
-				Token::Eof => {
-					return Err(format!("Unexpected EOF while parsing <{}>", tag_name));
-				}
-				_ => {
-					// Skip unknown tokens
-					self.advance();
-				}
-			}
-		}
-
-		// Parse the closing tag: </tagname>
-		self.expect_token(Token::EndOpenTag)?; // consume </
-
-		// Verify the closing tag name matches the opening tag
-		if let Token::Identifier(closing_name) = &self.current_token {
-			if *closing_name != tag_name {
-				return Err(format!(
-					"Mismatched closing tag: expected </{}>, found </{}>",
-					tag_name, closing_name
-				));
-			}
-			self.advance();
-		} else {
-			return Err("Expected tag name in closing tag".to_string());
-		}
-
-		self.expect_token(Token::CloseTag)?; // consume >
-
-		Ok(Node::Element(Element {
-			tag_name,
-			attributes,
-			children,
-			self_closing: false,
-		}))
-	}
-
-	/// Parse the entire RSML input and return the root DOM node.
-	fn parse(&mut self) -> Result<Node, String> {
-		self.parse_element()
-	}
-}
 
 // ============================================================================
 // CODE GENERATOR
 // ============================================================================
 
-/// Generates Rust code from a DOM tree.
+/// Generates Rust tokens from a DOM tree.
 ///
-/// The code generator traverses the DOM and produces idiomatic HyprUI Rust code.
+/// The code generator traverses the DOM and produces idiomatic HyprUI Rust code as
+/// a `TokenStream2`, preserving spans where possible.
+///
 /// It handles:
 /// - Built-in elements (container, text) → Element constructors
 /// - Components (uppercase tags) → Component::new with props
@@ -601,26 +257,36 @@ impl CodeGenerator {
 		Self
 	}
 
-	/// Generate Rust code for a DOM node.
-	///
-	/// This is the main entry point that dispatches to specific
-	/// generation methods based on the node type.
-	fn generate(&self, node: &Node) -> String {
+	/// Generate Rust tokens for a DOM node.
+	fn generate(&self, node: &Node) -> Result<TokenStream2, syn::Error> {
 		self.generate_with_box(node, true)
 	}
 
-	/// Generate Rust code for a DOM node, with option to wrap in Box::new().
-	fn generate_with_box(&self, node: &Node, wrap_in_box: bool) -> String {
+	/// Generate Rust tokens for a DOM node, with option to wrap in `Box::new(...)`.
+	fn generate_with_box(
+		&self,
+		node: &Node,
+		wrap_in_box: bool,
+	) -> Result<TokenStream2, syn::Error> {
 		let code = match node {
-			Node::Element(element) => self.generate_element_inner(element),
-			Node::Text(text) => format!("hyprui::Text::new(\"{}\")", text),
-			Node::Expression(expr) => expr.clone(),
+			Node::Element(element) => self.generate_element_inner(element)?,
+			Node::Text(text) => {
+				let lit = syn::LitStr::new(&text.value, text.span);
+				quote! { hyprui::Text::new(#lit) }
+			}
+			Node::Expression(expr) => {
+				let parsed: syn::Expr = syn::parse2(expr.value.clone()).or_else(|_| {
+					let ts = expr.value.clone();
+					syn::parse2::<syn::Expr>(quote! { ( #ts ) })
+				}).map_err(|e| syn::Error::new(expr.span, e.to_string()))?;
+				quote! { #parsed }
+			}
 		};
 
 		if wrap_in_box && matches!(node, Node::Element(_)) {
-			format!("Box::new({})", code)
+			Ok(quote! { Box::new(#code) })
 		} else {
-			code
+			Ok(code)
 		}
 	}
 
@@ -628,132 +294,181 @@ impl CodeGenerator {
 	///
 	/// Determines whether the element is a component (uppercase) or
 	/// a built-in element (lowercase) and generates appropriate code.
-	fn generate_element_inner(&self, element: &Element) -> String {
+	fn generate_element_inner(&self, element: &Element) -> Result<TokenStream2, syn::Error> {
+		let tag_name = element.tag_name.value.as_str();
+		let tag_span = element.tag_name.span;
+
 		// Components start with uppercase letters
-		if element.tag_name.chars().next().unwrap().is_uppercase() {
+		if tag_name.chars().next().unwrap_or('a').is_uppercase() {
 			return self.generate_component(element);
 		}
 
 		// Map RSML tag names to HyprUI types
-		let element_type = match element.tag_name.as_str() {
-			"container" => "hyprui::Container",
-			"text" => "hyprui::Text",
-			_ => &element.tag_name,
+		let element_type: TokenStream2 = match tag_name {
+			"container" => quote! { hyprui::Container },
+			"text" => quote! { hyprui::Text },
+			_ => {
+				let ident = Ident::new(tag_name, tag_span);
+				quote! { #ident }
+			}
 		};
 
-		let mut code = if element.tag_name == "text" {
-			// Text has special constructor: Text::new(content)
-			let format_string = element
-				.children
-				.iter()
-				.map(|child| match child {
-					Node::Text(text) => text.trim().to_string(),
-					Node::Expression(_) => "{}".to_string(),
-					Node::Element(element) => panic!(
-						"Text element cannot contain other elements, but found {:?}",
-						element
-					),
-				})
-				.collect::<Vec<String>>()
-				.join(" ");
-			let fmt_args = element
-				.children
-				.iter()
-				.filter_map(|child| match child {
-					Node::Text(_) => None,
-					Node::Expression(expr) => Some(expr.clone()),
-					Node::Element(element) => panic!(
-						"Text element cannot contain other elements, but found {:?}",
-						element
-					),
-				})
-				.collect::<Vec<String>>()
-				.join(", ");
-			let format_call = format!("format!(\"{}\", {})", format_string, fmt_args);
-			format!(
-				"{}::new({})",
-				element_type,
-				if fmt_args.is_empty() {
-					format!("\"{format_string}\"")
-				} else {
-					format_call
+		let mut code: TokenStream2 = if tag_name == "text" {
+			// Text has special constructor: Text::new(content) or Text::new(format!(...))
+			//
+			// For `<text>...</text>`, apply HTML/JSX whitespace collapsing to plain text
+			// children only (expressions are left intact).
+			let mut fmt_parts: Vec<String> = Vec::new();
+			let mut fmt_args: Vec<syn::Expr> = Vec::new();
+
+			for child in &element.children {
+				match child {
+					Node::Text(t) => {
+						let collapsed = collapse_html_whitespace(&t.value);
+						if !collapsed.is_empty() {
+							fmt_parts.push(collapsed);
+						}
+					}
+					Node::Expression(e) => {
+						fmt_parts.push("{}".to_string());
+
+						// Wrap in identity macro to help tooling, then parse as an expression.
+						let wrapped_ts = wrap_rsml_expr(e.value.clone());
+						let parsed: syn::Expr = syn::parse2(wrapped_ts.clone())
+							.or_else(|_| syn::parse2::<syn::Expr>(quote! { ( #wrapped_ts ) }))
+							.map_err(|err| {
+								syn::Error::new(
+									e.span,
+									format!(
+										"Invalid Rust expression inside `<text>{{...}}</text>`: {}\nExpression was:\n{}",
+										err,
+										e.value.to_string()
+									),
+								)
+							})?;
+						fmt_args.push(parsed);
+					}
+					Node::Element(other) => {
+						return Err(syn::Error::new(
+							other.tag_name.span,
+							"Text element cannot contain other elements",
+						));
+					}
 				}
-			)
+			}
+
+			let format_string = fmt_parts.join(" ");
+			let lit = syn::LitStr::new(&format_string, tag_span);
+
+			if fmt_args.is_empty() {
+				quote! { #element_type ::new(#lit) }
+			} else {
+				quote! { #element_type ::new(format!(#lit, #( #fmt_args ),*)) }
+			}
 		} else {
-			// Regular constructor: Element::new()
-			format!("{}::new()", element_type)
+			quote! { #element_type ::new() }
 		};
 
 		// Convert attributes to method calls
 		for attr in &element.attributes {
+			let attr_name_str = attr.name.value.as_str();
+			let attr_span = attr.name.span;
+			let method_ident = Ident::new(attr_name_str, attr_span);
+
 			match &attr.value {
 				Some(AttributeValue::String(s)) => {
-					// String attribute: .method("value")
-					code = format!("{}.{}(\"{}\")", code, attr.name, s);
+					let lit = syn::LitStr::new(&s.value, s.span);
+					code = quote! { #code . #method_ident ( #lit ) };
 				}
 				Some(AttributeValue::Expression(e)) => {
+					// Parse from token stream to preserve spans inside `{ ... }`.
+					// Also support comma-separated `{a, b}` by retrying as a tuple `(a, b)`.
+					//
+					// Additionally, wrap in identity macro to help tooling.
+					let wrapped_ts = wrap_rsml_expr(e.value.clone());
+					let expr: syn::Expr = syn::parse2(wrapped_ts.clone())
+						.or_else(|_| syn::parse2::<syn::Expr>(quote! { ( #wrapped_ts ) }))
+						.map_err(|err| {
+							syn::Error::new(
+								e.span,
+								format!(
+									"Invalid Rust expression in attribute `{}` on `<{}>`: {}\nExpression was:\n{}",
+									attr_name_str, tag_name, err, e.value.to_string()
+								),
+							)
+						})?;
+
 					if let Some(kind) = BOOLEAN_ATTR_RULES
-						.get(&(element.tag_name.as_str(), attr.name.as_str()))
+						.get(&(tag_name, attr_name_str))
 						.copied()
 					{
 						match kind {
 							BooleanAttrKind::FlagMethod => {
-								// Boolean flag method with expression: if expr { .method() } else { identity }
-								code = format!(
-									"if {} {{ {}.{}() }} else {{ {} }}",
-									e, code, attr.name, code
-								);
+								// Ensure condition expression is wrapped as a "bool-like" identity macro.
+								let cond_ts = wrap_rsml_bool(e.value.clone());
+								let cond: syn::Expr = syn::parse2(cond_ts.clone())
+									.or_else(|_| syn::parse2::<syn::Expr>(quote! { ( #cond_ts ) }))
+									.map_err(|err| syn::Error::new(e.span, err.to_string()))?;
+
+								code = quote! { if #cond { #code . #method_ident () } else { #code } };
 							}
 							BooleanAttrKind::ToggleBoolParam => {
-								// Bool-parameter toggle: `.method(expr)`
-								code = format!("{}.{}({})", code, attr.name, e);
+								code = quote! { #code . #method_ident ( #expr ) };
 							}
 						}
 					} else {
-						// Regular method with expression: .method(expr)
-						code = format!("{}.{}({})", code, attr.name, e);
+						code = quote! { #code . #method_ident ( #expr ) };
 					}
 				}
 				None => {
 					if let Some(kind) = BOOLEAN_ATTR_RULES
-						.get(&(element.tag_name.as_str(), attr.name.as_str()))
+						.get(&(tag_name, attr_name_str))
 						.copied()
 					{
 						match kind {
 							BooleanAttrKind::FlagMethod => {
-								// Boolean attribute without value: `.method()`
-								code = format!("{}.{}()", code, attr.name);
+								code = quote! { #code . #method_ident () };
 							}
 							BooleanAttrKind::ToggleBoolParam => {
-								// HTML-like boolean attribute without value: `.method(true)`
-								code = format!("{}.{}(true)", code, attr.name);
+								let t: syn::Expr = syn::parse_str("true").unwrap();
+								code = quote! { #code . #method_ident ( #t ) };
 							}
 						}
 					} else {
-						// Default: treat as 0-arg method call.
-						code = format!("{}.{}()", code, attr.name);
+						code = quote! { #code . #method_ident () };
 					}
 				}
 			}
 		}
 
-		// Add children as .child() calls (except for text which handle children differently)
-		if element.tag_name != "text" {
+		// Add children as `.child(...)` calls (except for text which handles children differently)
+		//
+		// Strict JSX semantics:
+		// - Only `<text>` may contain non-whitespace text nodes.
+		// - For other elements (e.g. `<container>`), non-whitespace text nodes are an error and must be wrapped in `<text>...</text>`.
+		if tag_name != "text" {
 			for child in &element.children {
 				match child {
-					Node::Text(text) if text.trim().is_empty() => {
-						// Skip whitespace-only text nodes
-						continue;
+					Node::Text(text) => {
+						if text.value.trim().is_empty() {
+							continue;
+						}
+						return Err(syn::Error::new(
+							text.span,
+							format!(
+								"`<{tag_name}>` cannot contain raw text. Wrap it in `<text>...</text>` instead."
+							),
+						));
 					}
 					_ => {
-						let child_code = self.generate_with_box(child, false);
-						code = format!("{}.child({})", code, child_code);
+						let child_code = self.generate_with_box(child, false)?;
+						code = quote! { #code .child(#child_code) };
 					}
 				}
 			}
 		}
 
-		code
+		Ok(code)
 	}
 
 	/// Generate Rust code for a component (uppercase tag).
@@ -772,65 +487,73 @@ impl CodeGenerator {
 	/// ```
 	///
 	/// This allows Rust to infer the correct props type from the component function signature.
-	fn generate_component(&self, element: &Element) -> String {
-		let mut props_assignments = Vec::new();
+	fn generate_component(&self, element: &Element) -> Result<TokenStream2, syn::Error> {
+		let component_ident = Ident::new(&element.tag_name.value, element.tag_name.span);
 
-		// Convert attributes to props assignments
+		// Build `props` assignments as tokens
+		let mut props_stmts: Vec<TokenStream2> = Vec::new();
+
 		for attr in &element.attributes {
-			let prop_assignment = match &attr.value {
+			let field_ident = Ident::new(&attr.name.value, attr.name.span);
+
+			let stmt = match &attr.value {
 				Some(AttributeValue::String(s)) => {
-					// String prop: props.name = "value";
-					format!("        props.{} = \"{}\".into();", attr.name, s)
+					let lit = syn::LitStr::new(&s.value, s.span);
+					quote! { props.#field_ident = (#lit).into(); }
 				}
 				Some(AttributeValue::Expression(e)) => {
-					// Expression prop: props.name = expression;
-					format!("        props.{} = {}.into();", attr.name, e)
+					// Parse from token stream to preserve spans; support tuple fallback.
+					// Wrap in identity macro to help tooling.
+					let wrapped_ts = wrap_rsml_expr(e.value.clone());
+					let expr: syn::Expr = syn::parse2(wrapped_ts.clone())
+						.or_else(|_| syn::parse2::<syn::Expr>(quote! { ( #wrapped_ts ) }))
+						.map_err(|err| {
+							syn::Error::new(
+								e.span,
+								format!(
+									"Invalid Rust expression for prop `{}` on component `<{}>`: {}\nExpression was:\n{}",
+									attr.name.value,
+									element.tag_name.value,
+									err,
+									e.value.to_string()
+								),
+							)
+						})?;
+					quote! { props.#field_ident = (#expr).into(); }
 				}
-				None => {
-					// Boolean prop: props.name = true;
-					format!("        props.{} = true.into();", attr.name)
-				}
+				None => quote! { props.#field_ident = true.into(); },
 			};
-			props_assignments.push(prop_assignment);
+
+			props_stmts.push(stmt);
 		}
 
 		// Convert children to props.children vector
 		if !element.children.is_empty() {
-			let mut children_code = Vec::new();
+			let mut children_tokens: Vec<TokenStream2> = Vec::new();
 			for child in &element.children {
 				match child {
-					Node::Text(text) if text.trim().is_empty() => {
-						// Skip whitespace-only text nodes
-						continue;
-					}
+					Node::Text(text) if text.value.trim().is_empty() => continue,
 					_ => {
-						children_code.push(self.generate_with_box(child, true));
+						children_tokens.push(self.generate_with_box(child, true)?);
 					}
 				}
 			}
 
-			if !children_code.is_empty() {
-				let children_vec = children_code.join(", ");
-				props_assignments.push(format!("        props.children = vec![{}];", children_vec));
+			if !children_tokens.is_empty() {
+				props_stmts.push(quote! { props.children = vec![ #( #children_tokens ),* ]; });
 			}
 		}
 
-		if props_assignments.is_empty() {
-			// No props, use Default::default() directly
-			format!(
-				"hyprui::Component::new({}, Default::default())",
-				element.tag_name
-			)
+		if props_stmts.is_empty() {
+			Ok(quote! { hyprui::Component::new(#component_ident, Default::default()) })
 		} else {
-			// Build props using Default::default() pattern
-			let props_block = format!(
-				"{{\n        let mut props = Default::default();\n{}\n        props\n    }}",
-				props_assignments.join("\n")
-			);
-			format!(
-				"hyprui::Component::new({}, {})",
-				element.tag_name, props_block
-			)
+			Ok(quote! {
+				hyprui::Component::new(#component_ident, {
+					let mut props = Default::default();
+					#( #props_stmts )*
+					props
+				})
+			})
 		}
 	}
 
@@ -870,40 +593,410 @@ impl CodeGenerator {
 /// ```
 #[proc_macro]
 pub fn rsml(input: TokenStream) -> TokenStream {
-	// Convert TokenStream to string
-	let input_str = input.to_string();
-
-	// Parse using our RSML compiler pipeline
-	let mut parser = Parser::new(&input_str);
-	let rust_code = match parser.parse() {
-		Ok(dom) => {
-			let generator = CodeGenerator::new();
-			generator.generate(&dom)
-		}
-		Err(e) => {
-			return syn::Error::new(
-				proc_macro2::Span::call_site(),
-				format!("RSML parse error: {}", e),
-			)
-			.to_compile_error()
-			.into();
-		}
-	};
-
-	// Parse the generated Rust code back into tokens
-	match rust_code.parse::<proc_macro2::TokenStream>() {
+	// Token-tree based parse for span-preserving diagnostics.
+	//
+	// This keeps Rust tokens inside `{ ... }` as real Rust token streams so `syn::parse2`
+	// can produce properly-spanned errors.
+	match rsml_from_token_trees(TokenStream2::from(input)) {
 		Ok(tokens) => tokens.into(),
-		Err(e) => {
-			return syn::Error::new(
-				proc_macro2::Span::call_site(),
-				format!(
-					"Generated invalid Rust code: {}. Generated code was: {}",
-					e, rust_code
-				),
-			)
-			.to_compile_error()
-			.into();
+		Err(e) => e.to_compile_error().into(),
+	}
+}
+
+fn rsml_from_token_trees(input: TokenStream2) -> Result<TokenStream2, syn::Error> {
+	let mut lexer = TokenTreeTokenizer::new(input);
+	let dom = lexer.parse()?;
+	let generator = CodeGenerator::new();
+	generator.generate(&dom)
+}
+
+struct TokenTreeTokenizer {
+	tokens: Vec<TokenTree>,
+	idx: usize,
+	in_tag: bool,
+}
+
+impl TokenTreeTokenizer {
+	fn new(input: TokenStream2) -> Self {
+		Self {
+			tokens: input.into_iter().collect(),
+			idx: 0,
+			in_tag: false,
 		}
+	}
+
+	fn peek(&self) -> Option<&TokenTree> {
+		self.tokens.get(self.idx)
+	}
+
+	fn bump(&mut self) -> Option<TokenTree> {
+		let tt = self.tokens.get(self.idx).cloned();
+		if tt.is_some() {
+			self.idx += 1;
+		}
+		tt
+	}
+
+	fn next_rsml_token(&mut self) -> Token {
+		loop {
+			let Some(tt) = self.bump() else {
+				return Token {
+					kind: TokenKind::Eof,
+					span: Span::call_site(),
+					payload: None,
+					expr_tokens: None,
+				};
+			};
+
+			match tt {
+				TokenTree::Punct(p) if p.as_char() == '<' => {
+					if matches!(self.peek(), Some(TokenTree::Punct(n)) if n.as_char() == '/') {
+						let _ = self.bump(); // consume '/'
+						self.in_tag = true;
+						return Token {
+							kind: TokenKind::EndOpenTag,
+							span: p.span(),
+							payload: None,
+							expr_tokens: None,
+						};
+					}
+					self.in_tag = true;
+					return Token {
+						kind: TokenKind::OpenTag,
+						span: p.span(),
+						payload: None,
+						expr_tokens: None,
+					};
+				}
+				TokenTree::Punct(p) if p.as_char() == '>' => {
+					self.in_tag = false;
+					return Token {
+						kind: TokenKind::CloseTag,
+						span: p.span(),
+						payload: None,
+						expr_tokens: None,
+					};
+				}
+				TokenTree::Punct(p) if p.as_char() == '/' => {
+					if matches!(self.peek(), Some(TokenTree::Punct(n)) if n.as_char() == '>') {
+						let _ = self.bump(); // consume '>'
+						self.in_tag = false;
+						return Token {
+							kind: TokenKind::SelfCloseTag,
+							span: p.span(),
+							payload: None,
+							expr_tokens: None,
+						};
+					}
+					continue;
+				}
+				TokenTree::Punct(p) if p.as_char() == '=' => {
+					return Token {
+						kind: TokenKind::Equals,
+						span: p.span(),
+						payload: None,
+						expr_tokens: None,
+					};
+				}
+				TokenTree::Group(g) if g.delimiter() == Delimiter::Brace => {
+					return Token {
+						kind: TokenKind::Expression,
+						span: g.span(),
+						payload: Some(g.stream().to_string()),
+						expr_tokens: Some(g.stream()),
+					};
+				}
+				TokenTree::Literal(lit) => {
+					return Token {
+						kind: TokenKind::StringLiteral,
+						span: lit.span(),
+						payload: Some(lit.to_string().trim_matches('"').to_string()),
+						expr_tokens: None,
+					};
+				}
+				TokenTree::Ident(ident) => {
+					if self.in_tag {
+						return Token {
+							kind: TokenKind::Identifier,
+							span: ident.span(),
+							payload: Some(ident.to_string()),
+							expr_tokens: None,
+						};
+					} else {
+						return Token {
+							kind: TokenKind::Text,
+							span: ident.span(),
+							payload: Some(ident.to_string()),
+							expr_tokens: None,
+						};
+					}
+				}
+				TokenTree::Punct(p) => {
+					if !self.in_tag {
+						return Token {
+							kind: TokenKind::Text,
+							span: p.span(),
+							payload: Some(p.as_char().to_string()),
+							expr_tokens: None,
+						};
+					}
+					continue;
+				}
+				TokenTree::Group(g) => {
+					if !self.in_tag {
+						return Token {
+							kind: TokenKind::Text,
+							span: g.span(),
+							payload: Some(g.stream().to_string()),
+							expr_tokens: None,
+						};
+					}
+					continue;
+				}
+			}
+		}
+	}
+
+	fn parse(&mut self) -> Result<Node, syn::Error> {
+		let mut tokens: Vec<Token> = Vec::new();
+		loop {
+			let t = self.next_rsml_token();
+			let kind = t.kind;
+			tokens.push(t);
+			if kind == TokenKind::Eof {
+				break;
+			}
+		}
+
+		let mut p = TokenVectorParser::new(tokens);
+		p.parse()
+	}
+}
+
+struct TokenVectorParser {
+	tokens: Vec<Token>,
+	idx: usize,
+	current_token: Token,
+}
+
+impl TokenVectorParser {
+	fn new(tokens: Vec<Token>) -> Self {
+		let first = tokens.get(0).cloned().unwrap_or(Token {
+			kind: TokenKind::Eof,
+			span: Span::call_site(),
+			payload: None,
+			expr_tokens: None,
+		});
+
+		Self {
+			tokens,
+			idx: 0,
+			current_token: first,
+		}
+	}
+
+	fn advance(&mut self) {
+		self.idx += 1;
+		self.current_token = self.tokens.get(self.idx).cloned().unwrap_or(Token {
+			kind: TokenKind::Eof,
+			span: Span::call_site(),
+			payload: None,
+			expr_tokens: None,
+		});
+	}
+
+	fn expect_token_kind(&mut self, expected: TokenKind) -> Result<(), syn::Error> {
+		if self.current_token.kind == expected {
+			self.advance();
+			Ok(())
+		} else {
+			Err(syn::Error::new(
+				self.current_token.span,
+				format!(
+					"Expected {:?}, found {:?} (payload={:?})",
+					expected, self.current_token.kind, self.current_token.payload
+				),
+			))
+		}
+	}
+
+	fn parse_attributes(&mut self) -> Result<Vec<Attribute>, syn::Error> {
+		let mut attributes = Vec::new();
+
+		while self.current_token.kind == TokenKind::Identifier {
+			let name_span = self.current_token.span;
+			let name = self
+				.current_token
+				.payload
+				.clone()
+				.ok_or_else(|| syn::Error::new(name_span, "Expected identifier"))?;
+
+			let attr_name = Spanned::new(name, name_span);
+			self.advance();
+
+			let value = if self.current_token.kind == TokenKind::Equals {
+				self.advance();
+
+				match self.current_token.kind {
+					TokenKind::StringLiteral => {
+						let span = self.current_token.span;
+						let s = self
+							.current_token
+							.payload
+							.clone()
+							.ok_or_else(|| syn::Error::new(span, "Expected string literal"))?;
+						self.advance();
+						Some(AttributeValue::String(Spanned::new(s, span)))
+					}
+					TokenKind::Expression => {
+						let span = self.current_token.span;
+						let ts = self
+							.current_token
+							.expr_tokens
+							.clone()
+							.ok_or_else(|| syn::Error::new(span, "Expected expression"))?;
+						self.advance();
+						Some(AttributeValue::Expression(Spanned::new(ts, span)))
+					}
+					_ => {
+						return Err(syn::Error::new(
+							self.current_token.span,
+							format!(
+								"Expected string literal or expression after =, found {:?} (payload={:?})",
+								self.current_token.kind, self.current_token.payload
+							),
+						));
+					}
+				}
+			} else {
+				None
+			};
+
+			attributes.push(Attribute { name: attr_name, value });
+		}
+
+		Ok(attributes)
+	}
+
+	fn parse_element(&mut self) -> Result<Node, syn::Error> {
+		self.expect_token_kind(TokenKind::OpenTag)?;
+
+		let tag_name = if self.current_token.kind == TokenKind::Identifier {
+			let span = self.current_token.span;
+			let name = self
+				.current_token
+				.payload
+				.clone()
+				.ok_or_else(|| syn::Error::new(span, "Expected tag name after <"))?;
+			self.advance();
+			Spanned::new(name, span)
+		} else {
+			return Err(syn::Error::new(
+				self.current_token.span,
+				format!(
+					"Expected tag name after <, found {:?} (payload={:?})",
+					self.current_token.kind, self.current_token.payload
+				),
+			));
+		};
+
+		let attributes = self.parse_attributes()?;
+
+		let self_closing = self.current_token.kind == TokenKind::SelfCloseTag;
+		if self_closing {
+			self.advance();
+			return Ok(Node::Element(Element {
+				tag_name,
+				attributes,
+				children: vec![],
+				self_closing: true,
+			}));
+		}
+
+		self.expect_token_kind(TokenKind::CloseTag)?;
+
+		let mut children = Vec::new();
+		while self.current_token.kind != TokenKind::EndOpenTag {
+			match self.current_token.kind {
+				TokenKind::OpenTag => children.push(self.parse_element()?),
+				TokenKind::Expression => {
+					let span = self.current_token.span;
+					let ts = self
+						.current_token
+						.expr_tokens
+						.clone()
+						.ok_or_else(|| syn::Error::new(span, "Expected expression"))?;
+					children.push(Node::Expression(Spanned::new(ts, span)));
+					self.advance();
+				}
+				TokenKind::Text => {
+					let span = self.current_token.span;
+					let text = self
+						.current_token
+						.payload
+						.clone()
+						.ok_or_else(|| syn::Error::new(span, "Expected text"))?;
+					children.push(Node::Text(Spanned::new(text, span)));
+					self.advance();
+				}
+				TokenKind::Eof => {
+					return Err(syn::Error::new(
+						self.current_token.span,
+						format!(
+							"Unexpected EOF while parsing <{}> (last token kind={:?}, payload={:?})",
+							tag_name.value.as_str(),
+							self.current_token.kind,
+							self.current_token.payload
+						),
+					));
+				}
+				_ => self.advance(),
+			}
+		}
+
+		self.expect_token_kind(TokenKind::EndOpenTag)?;
+
+		if self.current_token.kind == TokenKind::Identifier {
+			let span = self.current_token.span;
+			let closing_name = self
+				.current_token
+				.payload
+				.clone()
+				.ok_or_else(|| syn::Error::new(span, "Expected tag name in closing tag"))?;
+
+			if closing_name != tag_name.value {
+				return Err(syn::Error::new(
+					span,
+					format!(
+						"Mismatched closing tag: expected </{}>, found </{}>",
+						tag_name.value, closing_name
+					),
+				));
+			}
+
+			self.advance();
+		} else {
+			return Err(syn::Error::new(
+				self.current_token.span,
+				format!(
+					"Expected tag name in closing tag, found {:?} (payload={:?})",
+					self.current_token.kind, self.current_token.payload
+				),
+			));
+		}
+
+		self.expect_token_kind(TokenKind::CloseTag)?;
+
+		Ok(Node::Element(Element {
+			tag_name,
+			attributes,
+			children,
+			self_closing: false,
+		}))
+	}
+
+	fn parse(&mut self) -> Result<Node, syn::Error> {
+		self.parse_element()
 	}
 }
 
@@ -975,14 +1068,25 @@ mod tests {
 					}
 				};
 
+				// Convert fixture source into a TokenStream first, to match proc-macro input shape.
+				// Note: this does not preserve fine-grained spans (yet), but it exercises the same
+				// token-to-string conversion path as the macro pipeline.
+				let fixture_ts: proc_macro2::TokenStream = match source.parse() {
+					Ok(ts) => ts,
+					Err(e) => {
+						println!("FAIL (couldn't parse fixture into TokenStream: {})", e);
+						continue;
+					}
+				};
+
 				// Parse with panic handling to prevent crashes
 				let result = panic::catch_unwind(|| {
-					// Run the full compiler pipeline: tokenize → parse → generate
-					let mut parser = Parser::new(&source);
-					match parser.parse() {
+					// Run the full compiler pipeline using token-tree parsing: parse → generate
+					let mut lexer = TokenTreeTokenizer::new(fixture_ts);
+					match lexer.parse() {
 						Ok(dom) => {
 							let generator = CodeGenerator::new();
-							Ok(generator.generate(&dom))
+							generator.generate(&dom)
 						}
 						Err(e) => Err(e),
 					}
@@ -990,13 +1094,16 @@ mod tests {
 
 				// Report results
 				match result {
-					Ok(Ok(rust_code)) => {
+					Ok(Ok(tokens)) => {
 						println!("PASS");
-						println!("  Output: {}", rust_code);
+						println!("  Output: {}", tokens);
 						passed_files += 1;
 					}
 					Ok(Err(parse_error)) => {
-						println!("FAIL (parse error: {})", parse_error);
+						println!("FAIL (parse error)");
+						println!("  Message: {}", parse_error);
+						println!("  Debug: {:#?}", parse_error);
+						println!("  Spanned compile_error!: {}", parse_error.to_compile_error());
 					}
 					Err(_) => {
 						println!("FAIL (panic during parsing)");
@@ -1022,15 +1129,92 @@ mod tests {
 		// Test expression handling specifically
 		let rsml_input = r#"<text>{format!("Count: {}", count)}</text>"#;
 
-		let mut parser = Parser::new(rsml_input);
-		match parser.parse() {
+		let ts: proc_macro2::TokenStream = rsml_input.parse().expect("fixture must parse to TokenStream");
+		let rsml_input = ts.to_string();
+
+		match TokenTreeTokenizer::new(ts).parse() {
 			Ok(dom) => {
 				let generator = CodeGenerator::new();
-				let rust_code = generator.generate(&dom);
-				println!("Expression test - Generated code: {}", rust_code);
+				match generator.generate(&dom) {
+					Ok(tokens) => {
+						println!("Expression test - Generated code: {}", tokens);
+					}
+					Err(e) => {
+						println!("Expression test - Codegen error: {}", e);
+					}
+				}
 			}
 			Err(e) => {
 				println!("Expression test - Parse error: {}", e);
+			}
+		}
+	}
+
+	#[test]
+	fn test_debug_failing_rsml_fixtures() {
+		use std::fs;
+
+		let default_span = proc_macro2::Span::call_site();
+		let generator = CodeGenerator::new();
+
+		let fixtures = [
+			"rsml_tests/05_complex_nested.rsml",
+			"rsml_tests/09_api_validation.rsml",
+		];
+
+		for rel_path in fixtures {
+			println!("\n=== Debug fixture: {} ===", rel_path);
+
+			let source = match fs::read_to_string(rel_path) {
+				Ok(s) => s,
+				Err(e) => {
+					println!("FAILED to read fixture: {e}");
+					continue;
+				}
+			};
+
+			let fixture_ts: proc_macro2::TokenStream = match source.parse() {
+				Ok(ts) => ts,
+				Err(e) => {
+					println!("FAILED to parse fixture into TokenStream: {e}");
+					continue;
+				}
+			};
+			// Dump token-tree lexer output to help pinpoint the exact token that breaks parsing.
+			println!("--- Tokens (token-tree lexer) ---");
+			{
+				let mut t = TokenTreeTokenizer::new(fixture_ts.clone());
+				loop {
+					let tok = t.next_rsml_token();
+					println!("  kind={:?} payload={:?}", tok.kind, tok.payload);
+					if tok.kind == TokenKind::Eof {
+						break;
+					}
+				}
+			}
+
+			// Parse + codegen.
+			println!("--- Parse + Codegen ---");
+			let mut lexer = TokenTreeTokenizer::new(fixture_ts);
+			match lexer.parse() {
+				Ok(dom) => match generator.generate(&dom) {
+					Ok(tokens) => {
+						println!("PASS parse+codegen");
+						println!("Generated: {}", tokens);
+					}
+					Err(e) => {
+						println!("FAIL codegen");
+						println!("  Message: {}", e);
+						println!("  Debug: {:#?}", e);
+						println!("  Spanned compile_error!: {}", e.to_compile_error());
+					}
+				},
+				Err(e) => {
+					println!("FAIL parse");
+					println!("  Message: {}", e);
+					println!("  Debug: {:#?}", e);
+					println!("  Spanned compile_error!: {}", e.to_compile_error());
+				}
 			}
 		}
 	}
