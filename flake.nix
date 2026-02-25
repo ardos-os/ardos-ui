@@ -1,5 +1,5 @@
 {
-  description = "HyprUI";
+  description = "Ardos UI";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

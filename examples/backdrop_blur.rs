@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use hyprui::*;
+use ardos_ui::*;
 
 /// Demonstrates a "glass" overlay using:
 /// - `floating={true}` + `floating_*` attributes to place it above content
@@ -153,7 +153,7 @@ fn Root(_: ()) -> Box<dyn Element> {
 }
 
 fn main() {
-	hyprui::create_window(
+	ardos_ui::create_window(
 		Root,
 		(),
 		WindowOptions {

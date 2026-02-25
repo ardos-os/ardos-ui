@@ -89,7 +89,7 @@ pub type Entity<T> = (Rc<RefCell<T>>, Box<dyn Fn(&dyn Fn(&mut T))>);
 ///
 /// # Example
 /// ```rust,no_run
-/// # use hyprui::use_state;
+/// # use ardos_ui::use_state;
 /// let (count, set_count) = use_state(0);
 /// set_count(count + 1);
 /// ```

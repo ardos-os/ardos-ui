@@ -17,7 +17,7 @@ use clay_layout::{
 mod hooks;
 pub use element::{Element, component::Component, container::*, text::Text};
 pub use hooks::*;
-pub use hyprui_rsml_compiler::rsml;
+pub use ardos_ui_rsml_compiler::rsml;
 pub(crate) use input::winit_impl::WinitInputManager;
 pub use input::{InputManager, NamedKey, NativeKey};
 pub use render_context::RenderContext;
@@ -76,10 +76,10 @@ impl GlobalClosure for std::thread::LocalKey<RefCell<Box<dyn Fn()>>> {
 		self.with(|r| r.borrow()())
 	}
 }
-/// Creates and displays a HyprUI window with a declarative root component.
+/// Creates and displays a Ardos UI window with a declarative root component.
 ///
 /// This function sets up the entire environment required to render a graphical interface
-/// using HyprUI's component system. It manages the window lifecycle, rendering,
+/// using Ardos UI's component system. It manages the window lifecycle, rendering,
 /// font management, user input, and automatic UI updates.
 ///
 /// # Parameters
@@ -95,10 +95,10 @@ impl GlobalClosure for std::thread::LocalKey<RefCell<Box<dyn Fn()>>> {
 /// # Example
 ///
 /// ```rust,no_run
-/// use hyprui::{create_window, WindowOptions, Text};
+/// use ardos_ui::{create_window, WindowOptions, Text};
 ///
-/// fn root_component(_: ()) -> Box<dyn hyprui::Element> {
-///     Box::new(Text::new("Hello, HyprUI!"))
+/// fn root_component(_: ()) -> Box<dyn ardos_ui::Element> {
+///     Box::new(Text::new("Hello, Ardos UI!"))
 /// }
 ///
 /// fn main() {
@@ -106,7 +106,7 @@ impl GlobalClosure for std::thread::LocalKey<RefCell<Box<dyn Fn()>>> {
 ///         root_component,
 ///         (),
 ///         WindowOptions {
-///             title: "My HyprUI App".into(),
+///             title: "My Ardos UI App".into(),
 ///             preferred_size: (400.0, 300.0),
 ///             ..Default::default()
 ///         },
@@ -128,7 +128,7 @@ impl GlobalClosure for std::thread::LocalKey<RefCell<Box<dyn Fn()>>> {
 /// # Requirements
 ///
 /// - A graphical environment must be available.
-/// - HyprUI must be properly compiled for the target operating system.
+/// - Ardos UI must be properly compiled for the target operating system.
 ///
 /// # See also
 ///

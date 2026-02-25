@@ -1,11 +1,11 @@
-use hyprui::{Element, WindowOptions, rsml, use_state};
+use ardos_ui::{Element, WindowOptions, rsml, use_state};
 
 fn counter_component(_: ()) -> Box<dyn Element> {
 	let (count, set_count) = use_state(0);
 
 	rsml! {
 			<container
-					direction={hyprui::Direction::Column}
+					direction={ardos_ui::Direction::Column}
 					padding_all={20}
 					background_color={(0x1a, 0x1a, 0x1a)}
 					h_expand
@@ -52,11 +52,11 @@ fn counter_component(_: ()) -> Box<dyn Element> {
 fn main() {
 	env_logger::init();
 
-	hyprui::create_window(
+	ardos_ui::create_window(
 		counter_component,
 		(),
 		WindowOptions {
-			title: "Welcome to HyprUI".into(),
+			title: "Welcome to Ardos UI".into(),
 			preferred_size: (400.0, 300.0),
 			..Default::default()
 		},

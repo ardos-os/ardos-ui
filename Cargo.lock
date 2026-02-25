@@ -630,7 +630,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
-name = "hyprui"
+name = "ardos-ui"
 version = "0.1.0"
 dependencies = [
  "clay-layout",
@@ -638,7 +638,7 @@ dependencies = [
  "env_logger",
  "glutin",
  "glutin-winit",
- "hyprui-rsml-compiler",
+ "ardos-ui-rsml-compiler",
  "log",
  "skia-safe",
  "uuid",
@@ -646,7 +646,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "hyprui-rsml-compiler"
+name = "ardos-ui-rsml-compiler"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",

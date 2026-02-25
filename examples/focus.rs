@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use hyprui::*;
+use ardos_ui::*;
 fn Button(_: ()) -> Box<dyn Element> {
 	let (count, set_count) = use_state(0);
 	let clickable_ref = use_ref(ClickableState::default());
@@ -48,7 +48,7 @@ fn Root(_: ()) -> Box<dyn Element> {
 }
 
 fn main() {
-	hyprui::create_window(
+	ardos_ui::create_window(
 		Root,
 		(),
 		WindowOptions {

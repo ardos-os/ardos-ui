@@ -1,9 +1,9 @@
 [package]
-name = "hyprui"
+name = "ardos-ui"
 version = "0.1.0"
 edition = "2024"
 [workspace]
-members = ["hyprui-rsml-compiler"]
+members = ["ardos-ui-rsml-compiler"]
 [dependencies]
 skia-safe = { version = "0.86.0", features = ["gl"] }
 color-eyre = "0.6.3"
@@ -11,7 +11,7 @@ winit = { git = "https://github.com/SergioRibera/winit/", branch = "layer_shell"
 glutin = { git = "https://github.com/coffeeispower/glutin", version = "0.32.3" }
 glutin-winit = { git = "https://github.com/coffeeispower/glutin", version = "0.5.0" }
 log = "0.4.27"
-hyprui-rsml-compiler = { path = "hyprui-rsml-compiler" }
+ardos-ui-rsml-compiler = { path = "ardos-ui-rsml-compiler" }
 uuid = { version = "1.18.1", features = ["v4"] }
 [dependencies.clay-layout]
 features = ["debug"]

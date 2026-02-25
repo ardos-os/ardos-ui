@@ -1,6 +1,6 @@
 //! # RSML (RuSt Markup Language) Compiler
 //!
-//! A DOM-based compiler that transforms JSX-like syntax into HyprUI Rust code.
+//! A DOM-based compiler that transforms JSX-like syntax into Ardos UI Rust code.
 //!
 //! ## Architecture Overview
 //!
@@ -26,9 +26,9 @@
 //!
 //! Output Rust:
 /// ```rust,ignore
-/// Box::new(hyprui::Container::new().padding_all(16).center()
-///     .child(Box::new(hyprui::Text::new("Hello World!").font_size(18)))
-///     .child(hyprui::Component::new(MyComponent, {
+/// Box::new(ardos_ui::Container::new().padding_all(16).center()
+///     .child(Box::new(ardos_ui::Text::new("Hello World!").font_size(18)))
+///     .child(ardos_ui::Component::new(MyComponent, {
 ///         let mut props = Default::default();
 ///         props.name = "test";
 ///         props.active = true;
@@ -43,20 +43,20 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 use syn::Ident;
 
-/// Wrap a Rust expression token stream in HyprUI's identity macro.
+/// Wrap a Rust expression token stream in Ardos UI's identity macro.
 ///
 /// This is intended to improve editor tooling behavior for expressions originating
 /// inside RSML `{ ... }` placeholders.
 fn wrap_rsml_expr(ts: TokenStream2) -> TokenStream2 {
-	quote! { hyprui::__rsml_expr!(#ts) }
+	quote! { ardos_ui::__rsml_expr!(#ts) }
 }
 
-/// Wrap a boolean-ish Rust expression token stream in HyprUI's identity macro.
+/// Wrap a boolean-ish Rust expression token stream in Ardos UI's identity macro.
 ///
 /// This is intended to improve editor tooling behavior for boolean-driven
 /// attribute application paths.
 fn wrap_rsml_bool(ts: TokenStream2) -> TokenStream2 {
-	quote! { hyprui::__rsml_bool!(#ts) }
+	quote! { ardos_ui::__rsml_bool!(#ts) }
 }
 
 /// Simple spanned wrapper used across the tokenizer/parser/codegen pipeline.
@@ -205,7 +205,7 @@ struct Token {
 
 /// Generates Rust tokens from a DOM tree.
 ///
-/// The code generator traverses the DOM and produces idiomatic HyprUI Rust code as
+/// The code generator traverses the DOM and produces idiomatic Ardos UI Rust code as
 /// a `TokenStream2`, preserving spans where possible.
 ///
 /// It handles:
@@ -272,7 +272,7 @@ impl CodeGenerator {
 			Node::Element(element) => self.generate_element_inner(element)?,
 			Node::Text(text) => {
 				let lit = syn::LitStr::new(&text.value, text.span);
-				quote! { hyprui::Text::new(#lit) }
+				quote! { ardos_ui::Text::new(#lit) }
 			}
 			Node::Expression(expr) => {
 				let parsed: syn::Expr = syn::parse2(expr.value.clone()).or_else(|_| {
@@ -303,10 +303,10 @@ impl CodeGenerator {
 			return self.generate_component(element);
 		}
 
-		// Map RSML tag names to HyprUI types
+		// Map RSML tag names to Ardos UI types
 		let element_type: TokenStream2 = match tag_name {
-			"container" => quote! { hyprui::Container },
-			"text" => quote! { hyprui::Text },
+			"container" => quote! { ardos_ui::Container },
+			"text" => quote! { ardos_ui::Text },
 			_ => {
 				let ident = Ident::new(tag_name, tag_span);
 				quote! { #ident }
@@ -477,7 +477,7 @@ impl CodeGenerator {
 	/// where props is built using the Default::default() pattern:
 	///
 	/// ```rust,ignore
-	/// hyprui::Component::new(MyComponent, {
+	/// ardos_ui::Component::new(MyComponent, {
 	///     let mut props = Default::default();
 	///     props.name = "value";
 	///     props.active = true;
@@ -545,10 +545,10 @@ impl CodeGenerator {
 		}
 
 		if props_stmts.is_empty() {
-			Ok(quote! { hyprui::Component::new(#component_ident, Default::default()) })
+			Ok(quote! { ardos_ui::Component::new(#component_ident, Default::default()) })
 		} else {
 			Ok(quote! {
-				hyprui::Component::new(#component_ident, {
+				ardos_ui::Component::new(#component_ident, {
 					let mut props = Default::default();
 					#( #props_stmts )*
 					props
@@ -566,14 +566,14 @@ impl CodeGenerator {
 // PROC MACRO
 // ============================================================================
 
-/// The `rsml!` procedural macro for writing HyprUI components with JSX-like syntax.
+/// The `rsml!` procedural macro for writing Ardos UI components with JSX-like syntax.
 ///
-/// This macro transforms RSML (RuSt Markup Language) syntax into HyprUI Rust code.
+/// This macro transforms RSML (RuSt Markup Language) syntax into Ardos UI Rust code.
 ///
 /// # Example
 ///
 /// ```rust,ignore
-/// use hyprui::rsml;
+/// use ardos_ui::rsml;
 ///
 /// let element = rsml! {
 ///     <container padding_all={16} center on_click={|| println!("Clicked!")}>
@@ -586,10 +586,10 @@ impl CodeGenerator {
 /// The above expands to:
 ///
 /// ```rust,ignore
-/// Box::new(hyprui::Container::new().padding_all(16).center()
+/// Box::new(ardos_ui::Container::new().padding_all(16).center()
 ///     .on_click(|| println!("Clicked!"))
-///     .child(Box::new(hyprui::Text::new("Hello, World!").font_size(18)))
-///     .child(Box::new(hyprui::Text::new("Click me!"))))
+///     .child(Box::new(ardos_ui::Text::new("Hello, World!").font_size(18)))
+///     .child(Box::new(ardos_ui::Text::new("Click me!"))))
 /// ```
 #[proc_macro]
 pub fn rsml(input: TokenStream) -> TokenStream {
