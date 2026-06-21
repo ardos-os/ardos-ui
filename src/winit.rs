@@ -16,10 +16,14 @@ use skia_safe::{Color, ColorType};
 use std::num::NonZeroU32;
 use std::rc::Rc;
 use winit::application::ApplicationHandler;
+use winit::dpi::{LogicalPosition, LogicalSize, Position, Size};
 use winit::event::{ButtonSource, ElementState, Ime, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::raw_window_handle::HasWindowHandle;
-use winit::window::{Window, WindowAttributes, WindowId};
+use winit::window::{
+	ImeCapabilities, ImeEnableRequest, ImeHint, ImePurpose, ImeRequest, ImeRequestData,
+	ImeRequestError, Window, WindowAttributes, WindowId,
+};
 
 use crate::REQUEST_REDRAW;
 impl ApplicationHandler for WinitApp {
@@ -133,13 +137,14 @@ impl ApplicationHandler for WinitApp {
 					skia_surface,
 					skia_context,
 					gl_surface,
-					..
+					window,
 				}) = self.window.as_mut()
 				else {
 					return;
 				};
 				skia_surface.canvas().clear(Color::TRANSPARENT);
-				(self.callbacks.on_render_callback)(skia_surface.canvas());
+				let ime_request = (self.callbacks.on_render_callback)(skia_surface.canvas());
+				update_window_ime(&mut self.ime_enabled, window.as_ref(), ime_request);
 				skia_context.flush_and_submit();
 				gl_surface
 					.swap_buffers(self.gl_context.as_ref().unwrap())
@@ -182,7 +187,7 @@ impl ApplicationHandler for WinitApp {
 						B::Middle => 2,
 						B::Back => 3,
 						B::Forward => 4,
-						B::Other(b) => b,
+						other => other as u16,
 					},
 				);
 				window.request_redraw();
@@ -237,8 +242,61 @@ fn create_gl_context(window: &dyn Window, gl_config: &Config) -> NotCurrentConte
 			})
 	}
 }
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ImeFrameRequest {
+	pub requested: bool,
+	pub cursor_area: Option<(Position, Size)>,
+}
+
+fn update_window_ime(ime_enabled: &mut bool, window: &dyn Window, request: ImeFrameRequest) {
+	if *ime_enabled == request.requested && request.cursor_area.is_none() {
+		return;
+	}
+
+	let ime_request = if request.requested {
+		let capabilities = ImeCapabilities::new()
+			.with_hint_and_purpose()
+			.with_cursor_area();
+		let request_data = ImeRequestData::default()
+			.with_hint_and_purpose(ImeHint::NONE, ImePurpose::Normal)
+			.with_cursor_area_opt(request.cursor_area);
+
+		let Some(enable_request) = ImeEnableRequest::new(capabilities, request_data) else {
+			return;
+		};
+		ImeRequest::Enable(enable_request)
+	} else {
+		ImeRequest::Disable
+	};
+
+	match window.request_ime_update(ime_request) {
+		Ok(()) => *ime_enabled = request.requested,
+		Err(ImeRequestError::AlreadyEnabled) => *ime_enabled = true,
+		Err(ImeRequestError::NotEnabled) => *ime_enabled = false,
+		Err(ImeRequestError::NotSupported) => {}
+		Err(_) => {}
+	}
+}
+
+trait ImeRequestDataExt {
+	fn with_cursor_area_opt(self, cursor_area: Option<(Position, Size)>) -> Self;
+}
+
+impl ImeRequestDataExt for ImeRequestData {
+	fn with_cursor_area_opt(self, cursor_area: Option<(Position, Size)>) -> Self {
+		let (position, size) = cursor_area.unwrap_or_else(|| {
+			(
+				LogicalPosition::new(0.0, 0.0).into(),
+				LogicalSize::new(0.0, 0.0).into(),
+			)
+		});
+		self.with_cursor_area(position, size)
+	}
+}
+
 pub(crate) struct Callbacks {
-	pub on_render_callback: Box<dyn FnMut(&skia_safe::Canvas)>,
+	pub on_render_callback: Box<dyn FnMut(&skia_safe::Canvas) -> ImeFrameRequest>,
 	pub on_mouse_move: Box<dyn FnMut(f64, f64)>,
 	pub on_window_resize: Box<dyn FnMut(f64, f64)>,
 	pub on_mouse_button: Box<dyn FnMut(bool, u16)>,
@@ -252,6 +310,7 @@ pub(crate) struct WinitApp {
 	window_options: WindowAttributes,
 	window: Option<SurfaceAndWindow>,
 	callbacks: Callbacks,
+	ime_enabled: bool,
 }
 
 impl WinitApp {
@@ -266,6 +325,7 @@ impl WinitApp {
 			gl_context: None,
 			window: None,
 			callbacks,
+			ime_enabled: false,
 		}
 	}
 	fn post_opengl_init(&mut self, window: Box<dyn Window>, gl_config: Config) {
@@ -388,11 +448,10 @@ impl WinitApp {
 		)
 		.expect("Failed to create Skia surface")
 	}
-	pub(crate) fn run(mut self) {
+	pub(crate) fn run(self) {
 		let event_loop = EventLoop::new().unwrap();
 		event_loop.set_control_flow(ControlFlow::Wait);
-		event_loop.run_app(&mut self).unwrap();
-		self.exit_state.unwrap();
+		event_loop.run_app(self).unwrap();
 	}
 }
 

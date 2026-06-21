@@ -15,7 +15,7 @@ use clay_layout::{
 	math::{Dimensions, Vector2},
 };
 mod hooks;
-pub use element::{Element, component::Component, container::*, text::Text};
+pub use element::{Element, component::Component, container::*, input::*, text::Text};
 pub use hooks::*;
 pub use ardos_ui_rsml_compiler::rsml;
 pub(crate) use input::winit_impl::WinitInputManager;
@@ -29,7 +29,7 @@ use crate::{
 	focus_system::GLOBAL_FOCUS_MANAGER,
 	font_manager::FontManager,
 	input::Key,
-	winit::{Callbacks, WinitApp},
+	winit::{Callbacks, ImeFrameRequest, WinitApp},
 };
 
 /// Internal helpers used by the `rsml!` macro expansion.
@@ -142,7 +142,14 @@ pub fn create_window<Props: Clone + 'static>(
 ) {
 	color_eyre::install().ok();
 
-	let clay = Rc::new(RefCell::new(clay_layout::Clay::new((0.0, 0.0).into())));
+	let initial_size = if options.preferred_size != (0.0, 0.0) {
+		options.preferred_size
+	} else {
+		(800.0, 600.0)
+	};
+	let clay = Rc::new(RefCell::new(clay_layout::Clay::new(
+		(initial_size.0 as f32, initial_size.1 as f32).into(),
+	)));
 	let mut font_manager = FontManager::new();
 	let input_manager = Rc::new(RefCell::new(WinitInputManager::new()));
 
@@ -167,32 +174,37 @@ pub fn create_window<Props: Clone + 'static>(
 					frame_pool.reset();
 					let frame_alloc = frame_pool.begin_alloc();
 
-					let mut input_manager_ref = input_manager.borrow_mut();
-					GLOBAL_FOCUS_MANAGER.with_borrow_mut(|f| {
-						f.add_root();
-						if input_manager_ref.is_key_just_pressed(Key::Named(NamedKey::Tab)) {
-							if input_manager_ref.is_key_pressed(Key::Named(NamedKey::Shift)) {
-								f.focus_prev();
-							} else {
-								f.focus_next();
+					{
+						let input_manager_ref = input_manager.borrow();
+						GLOBAL_FOCUS_MANAGER.with_borrow_mut(|f| {
+							f.add_root();
+							if input_manager_ref.is_key_just_pressed(Key::Named(NamedKey::Tab)) {
+								if input_manager_ref.is_key_pressed(Key::Named(NamedKey::Shift)) {
+									f.focus_prev();
+								} else {
+									f.focus_next();
+								}
 							}
-						}
 
-						if (!input_manager_ref.cursor_hit_something()
-							&& (input_manager_ref.is_mouse_button_just_pressed(0)
-								|| input_manager_ref.is_mouse_button_just_pressed(1)))
-							|| input_manager_ref.is_key_just_pressed(Key::Named(NamedKey::Escape))
-						{
-							f.blur();
-						}
-						f.new_frame();
-					});
+							if (!input_manager_ref.cursor_hit_something()
+								&& (input_manager_ref.is_mouse_button_just_pressed(0)
+									|| input_manager_ref.is_mouse_button_just_pressed(1)))
+								|| input_manager_ref.is_key_just_pressed(Key::Named(NamedKey::Escape))
+							{
+								f.blur();
+							}
+							f.new_frame();
+						});
+					}
 					font_manager.update_clay_measure_function(&mut clay);
-					let root_component = Component::new(component, props.clone());
+					input_manager.borrow().reset_ime_request();
 					let instant = Instant::now();
+					let _input_scope = hooks::push_input_manager(Rc::clone(&input_manager));
+					let root_component = Component::new(component, props.clone());
 
-					let commands = {
+					let (commands, ime_request) = {
 						let mut c = clay.begin();
+						let input_manager_ref = input_manager.borrow();
 
 						let mut render_ctx = RenderContext {
 							c: &mut c,
@@ -202,7 +214,25 @@ pub fn create_window<Props: Clone + 'static>(
 						};
 						root_component.render(&mut render_ctx);
 
-						c.end()
+						let ime_requested = input_manager_ref.ime_requested();
+						let ime_anchor = input_manager_ref.ime_anchor();
+						let ime_cursor_area = ime_anchor
+							.and_then(|anchor| c.bounding_box(c.id(&anchor)))
+							.map(|bb| {
+								(
+									::winit::dpi::LogicalPosition::new(bb.x as f64, bb.y as f64).into(),
+									::winit::dpi::LogicalSize::new(bb.width as f64, bb.height as f64)
+										.into(),
+								)
+							});
+
+						(
+							c.end(),
+							ImeFrameRequest {
+								requested: ime_requested,
+								cursor_area: ime_cursor_area,
+							},
+						)
 					};
 
 					let elapsed = instant.elapsed();
@@ -262,7 +292,8 @@ pub fn create_window<Props: Clone + 'static>(
 						&fonts,
 					);
 
-					input_manager_ref.update();
+					input_manager.borrow_mut().update();
+					ime_request
 				})
 			},
 			on_mouse_move: {

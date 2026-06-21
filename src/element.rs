@@ -1,5 +1,6 @@
 pub mod component;
 pub mod container;
+pub mod input;
 pub mod text;
 use std::collections::HashSet;
 

@@ -22,11 +22,17 @@ pub trait InputManager {
 	/// Check if key was just pressed this frame
 	fn is_key_just_pressed(&self, key: Key) -> bool;
 
+	/// Check if key generated a repeat press this frame.
+	fn is_key_repeated(&self, key: Key) -> bool;
+
 	/// Check if key was just released this frame
 	fn is_key_just_released(&self, key: Key) -> bool;
 
-	/// Get text input for this frame (for text fields)
+	/// Get text input for this frame, including repeated text events.
 	fn text_input(&self) -> &str;
+
+	/// Get text input for this frame, excluding repeated text events.
+	fn text_input_without_repeat(&self) -> &str;
 
 	/// Get the buffer that the user is still editing in the IME
 	/// This needs to be displayed in the text input with an underline at the cursor position
@@ -37,6 +43,12 @@ pub trait InputManager {
 
 	/// Check if the user is currently using an IME
 	fn ime_is_editing(&self) -> bool;
+
+	/// Request IME activation for the current frame.
+	fn request_ime(&self);
+
+	/// Anchor the IME candidate window to an element id for the current frame.
+	fn set_ime_anchor(&self, id: &str);
 
 	fn set_cursor_clicked_something(&self);
 	fn cursor_hit_something(&self) -> bool;

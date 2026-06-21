@@ -16,7 +16,7 @@ impl Text {
 	pub fn new(text: impl Into<String>) -> Self {
 		Self {
 			text: text.into(),
-			font_family: "".to_string(),
+			font_family: "sans".to_string(),
 			font_weight: 400,
 			font_size: 14,
 			color: (0, 0, 0, 255).into(),

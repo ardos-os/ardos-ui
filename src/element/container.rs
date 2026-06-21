@@ -96,6 +96,7 @@ impl Default for Border {
 }
 #[derive(Debug, Clone)]
 pub struct ContainerStyle {
+	pub id: Option<String>,
 	pub background_color: Color,
 	pub border_radius: (f32, f32, f32, f32),
 	pub size: (Sizing, Sizing),
@@ -122,6 +123,7 @@ pub struct ContainerStyle {
 impl Default for ContainerStyle {
 	fn default() -> Self {
 		Self {
+			id: None,
 			padding: (0, 0, 0, 0),
 			background_color: Color::rgba(0., 0., 0., 0.),
 			border_radius: (0., 0., 0., 0.),
@@ -295,6 +297,11 @@ impl Default for Container {
 impl Container {
 	pub fn new() -> Self {
 		Self::default()
+	}
+
+	pub fn id(mut self, id: impl Into<String>) -> Self {
+		self.style.id = Some(id.into());
+		self
 	}
 
 	// --- Floating (Clay) ----------------------------------------------------
@@ -730,6 +737,10 @@ impl Element for Container {
 					.left(effective_style.border.width.left)
 					.end()
 					.background_color(effective_style.background_color);
+
+				if let Some(id) = &effective_style.id {
+					declaration.id(c.id(id));
+				}
 
 				if let Some(floating) = &effective_style.floating {
 					declaration

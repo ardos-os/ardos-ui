@@ -5,13 +5,14 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Deref;
 use std::rc::Rc;
 
-use crate::GlobalClosure;
+use crate::{GlobalClosure, InputManager, WinitInputManager};
 
 thread_local! {
 	pub(crate) static HOOK_PATH: RefCell<Vec<(usize, String)>> = RefCell::new(Vec::new());
 	pub(crate) static HOOK_INDEX: RefCell<usize> = RefCell::new(0);
 	pub(crate) static HOOK_STATES: RefCell<HashMap<HookKey, Box<dyn Any>>> = RefCell::new(HashMap::new());
 	pub(crate) static HOOK_VISITED_STATES: RefCell<HashSet<HookKey>> = RefCell::new(HashSet::new());
+	pub(crate) static CURRENT_INPUT_MANAGER: RefCell<Option<Rc<RefCell<WinitInputManager>>>> = RefCell::new(None);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -82,6 +83,49 @@ impl<T> Deref for StateSetter<T> {
 pub type State<T> = (T, StateSetter<T>);
 
 pub type Entity<T> = (Rc<RefCell<T>>, Box<dyn Fn(&dyn Fn(&mut T))>);
+
+#[derive(Clone)]
+pub struct InputHandle;
+
+impl InputHandle {
+	pub fn with<R>(&self, f: impl FnOnce(&dyn InputManager) -> R) -> R {
+		CURRENT_INPUT_MANAGER.with(|current| {
+			let input_manager = current
+				.borrow()
+				.as_ref()
+				.cloned()
+				.expect("use_input() can only be read during component render");
+			let input_manager = input_manager.borrow();
+			f(&*input_manager)
+		})
+	}
+}
+
+pub fn use_input() -> InputHandle {
+	InputHandle
+}
+
+pub(crate) struct InputManagerScope {
+	previous: Option<Rc<RefCell<WinitInputManager>>>,
+}
+
+impl Drop for InputManagerScope {
+	fn drop(&mut self) {
+		CURRENT_INPUT_MANAGER.with(|current| {
+			current.replace(self.previous.take());
+		});
+	}
+}
+
+pub(crate) fn push_input_manager(
+	input_manager: Rc<RefCell<WinitInputManager>>,
+) -> InputManagerScope {
+	CURRENT_INPUT_MANAGER.with(|current| {
+		let previous = current.replace(Some(input_manager));
+		InputManagerScope { previous }
+	})
+}
+
 /// React-style state hook for persistent, reactive state in a component.
 ///
 /// The state is stable for each unique component position and hook call order.
