@@ -11,6 +11,7 @@ winit = { git = "https://github.com/SergioRibera/winit/", branch = "layer_shell"
 glutin = { git = "https://github.com/coffeeispower/glutin", version = "0.32.3" }
 glutin-winit = { git = "https://github.com/coffeeispower/glutin", version = "0.5.0" }
 log = "0.4.27"
+smithay-clipboard = "0.7.3"
 ardos-ui-rsml-compiler = { path = "ardos-ui-rsml-compiler" }
 uuid = { version = "1.18.1", features = ["v4"] }
 [dependencies.clay-layout]

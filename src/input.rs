@@ -3,6 +3,15 @@ pub(crate) mod winit_impl;
 pub type Key = winit::keyboard::Key;
 pub type NativeKey = winit::keyboard::NativeKey;
 pub type NamedKey = winit::keyboard::NamedKey;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Modifiers {
+	pub shift: bool,
+	pub ctrl: bool,
+	pub alt: bool,
+	pub super_key: bool,
+}
+
 pub trait InputManager {
 	/// Get current mouse position
 	fn mouse_position(&self) -> (f32, f32);
@@ -27,6 +36,17 @@ pub trait InputManager {
 
 	/// Check if key was just released this frame
 	fn is_key_just_released(&self, key: Key) -> bool;
+
+	fn modifiers(&self) -> Modifiers;
+
+	fn primary_modifier_pressed(&self) -> bool {
+		let modifiers = self.modifiers();
+		if cfg!(target_os = "macos") {
+			modifiers.super_key
+		} else {
+			modifiers.ctrl
+		}
+	}
 
 	/// Get text input for this frame, including repeated text events.
 	fn text_input(&self) -> &str;

@@ -284,7 +284,7 @@ impl CodeGenerator {
 		};
 
 		if wrap_in_box && matches!(node, Node::Element(_)) {
-			Ok(quote! { Box::new(#code) })
+			Ok(quote! { (Box::new(#code) as Box<dyn ardos_ui::Element>) })
 		} else {
 			Ok(code)
 		}
@@ -474,15 +474,13 @@ impl CodeGenerator {
 	/// Generate Rust code for a component (uppercase tag).
 	///
 	/// Components are generated as Component::new(ComponentName, props)
-	/// where props is built using the Default::default() pattern:
+	/// where props is built using the setup_props parameter:
 	///
 	/// ```rust,ignore
-	/// ardos_ui::Component::new(MyComponent, {
-	///     let mut props = Default::default();
+	/// ardos_ui::Component::new(MyComponent, |props| {
 	///     props.name = "value";
 	///     props.active = true;
 	///     props.children = vec![/* child elements */];
-	///     props
 	/// })
 	/// ```
 	///
@@ -545,13 +543,11 @@ impl CodeGenerator {
 		}
 
 		if props_stmts.is_empty() {
-			Ok(quote! { ardos_ui::Component::new(#component_ident, Default::default()) })
+			Ok(quote! { ardos_ui::Component::new(#component_ident, |_| {}) })
 		} else {
 			Ok(quote! {
-				ardos_ui::Component::new(#component_ident, {
-					let mut props = Default::default();
+				ardos_ui::Component::new(#component_ident, |props| {
 					#( #props_stmts )*
-					props
 				})
 			})
 		}

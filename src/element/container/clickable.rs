@@ -74,9 +74,12 @@ impl Clickable {
 		if is_clicked != state.pressed {
 			state.pressed = is_clicked;
 		}
+		if is_clicked {
+			state.set_focus();
+			input_manager.set_cursor_clicked_something();
+		}
 		if let Some(on_click) = &self.on_click {
 			if is_clicked {
-				state.set_focus();
 				on_click();
 			}
 		}

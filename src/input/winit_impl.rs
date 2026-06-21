@@ -6,10 +6,10 @@ use std::{
 
 use winit::{
 	event::{ElementState, Ime, KeyEvent},
-	keyboard::Key,
+	keyboard::{Key, ModifiersState},
 };
 
-use crate::input::InputManager;
+use crate::input::{InputManager, Modifiers};
 
 pub struct WinitInputManager {
 	mouse_position: (f32, f32),
@@ -25,6 +25,7 @@ pub struct WinitInputManager {
 	text_ime_buffer_cursor: (usize, usize),
 	ime_editing: bool,
 	bytes_to_remove: (usize, usize),
+	modifiers: Modifiers,
 	has_clicked_on_something: AtomicBool,
 	ime_requested: AtomicBool,
 	ime_anchor: RefCell<Option<String>>,
@@ -46,6 +47,7 @@ impl WinitInputManager {
 			text_ime_buffer_cursor: (0, 0),
 			ime_editing: false,
 			bytes_to_remove: (0, 0),
+			modifiers: Modifiers::default(),
 			has_clicked_on_something: Default::default(),
 			ime_requested: Default::default(),
 			ime_anchor: Default::default(),
@@ -111,6 +113,16 @@ impl WinitInputManager {
 
 		self.keys_current.insert(event.logical_key, pressed);
 	}
+
+	pub fn set_modifiers(&mut self, modifiers: ModifiersState) {
+		self.modifiers = Modifiers {
+			shift: modifiers.shift_key(),
+			ctrl: modifiers.control_key(),
+			alt: modifiers.alt_key(),
+			super_key: modifiers.meta_key(),
+		};
+	}
+
 	pub fn handle_ime_event(&mut self, ime: Ime) {
 		match ime {
 			Ime::Enabled => {
@@ -221,6 +233,10 @@ impl InputManager for WinitInputManager {
 		let current = self.keys_current.get(&key).copied().unwrap_or(false);
 		let previous = self.keys_previous.get(&key).copied().unwrap_or(false);
 		!current && previous
+	}
+
+	fn modifiers(&self) -> Modifiers {
+		self.modifiers
 	}
 
 	fn text_input(&self) -> &str {

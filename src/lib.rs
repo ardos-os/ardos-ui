@@ -1,6 +1,7 @@
 use std::{cell::RefCell, ops::Deref, rc::Rc, time::Instant};
 
 mod clay_renderer;
+mod clipboard;
 mod element;
 mod focus_system;
 mod font_manager;
@@ -15,8 +16,9 @@ use clay_layout::{
 	math::{Dimensions, Vector2},
 };
 mod hooks;
-pub use element::{Element, component::Component, container::*, input::*, text::Text};
+pub use element::{Element, ElementExt, component::Component, container::*, input::*, text::Text};
 pub use hooks::*;
+pub use clipboard::{Clipboard, ClipboardHandle, use_clipboard};
 pub use ardos_ui_rsml_compiler::rsml;
 pub(crate) use input::winit_impl::WinitInputManager;
 pub use input::{InputManager, NamedKey, NativeKey};
@@ -26,11 +28,13 @@ pub use window_options::WindowOptions;
 
 use crate::{
 	clay_renderer::clay_skia_render,
+	clipboard::WaylandClipboard,
 	focus_system::GLOBAL_FOCUS_MANAGER,
 	font_manager::FontManager,
 	input::Key,
 	winit::{Callbacks, ImeFrameRequest, WinitApp},
 };
+use ::winit::raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 
 /// Internal helpers used by the `rsml!` macro expansion.
 ///
@@ -135,11 +139,11 @@ impl GlobalClosure for std::thread::LocalKey<RefCell<Box<dyn Fn()>>> {
 /// - [`Component`]
 /// - [`WindowOptions`]
 /// - [`Element`]
-pub fn create_window<Props: Clone + 'static>(
+pub fn create_window<Props: Default + Clone + 'static>(
 	component: impl Clone + Copy + Fn(Props) -> Box<dyn Element> + 'static,
-	props: Props,
 	options: WindowOptions,
 ) {
+	
 	color_eyre::install().ok();
 
 	let initial_size = if options.preferred_size != (0.0, 0.0) {
@@ -152,21 +156,24 @@ pub fn create_window<Props: Clone + 'static>(
 	)));
 	let mut font_manager = FontManager::new();
 	let input_manager = Rc::new(RefCell::new(WinitInputManager::new()));
+	let clipboard: Rc<RefCell<Option<ClipboardHandle>>> = Rc::new(RefCell::new(None));
+	let props = Props::default();
 
 	let winit_app = WinitApp::new(
 		options,
 		Callbacks {
 			on_render_callback: {
 				let clay = Rc::clone(&clay);
-				let props = props.clone();
+				clay.borrow().set_debug_mode(true);
 				let input_manager = Rc::clone(&input_manager);
+				let clipboard = Rc::clone(&clipboard);
 
 				// `FramePool` lives for the lifetime of this callback and is reset every frame,
 				// matching the `tibs` pattern.
 				let mut frame_pool: FramePool<'static> = FramePool::new();
 
-				Box::new(move |canvas| {
-
+				Box::new(move |canvas, window| {
+					let clipboard = clipboard_for_window(&clipboard, window);
 					let mut clay = clay.borrow_mut();
 
 					// Reset frame pool at the start of the frame so allocations from the previous
@@ -200,7 +207,8 @@ pub fn create_window<Props: Clone + 'static>(
 					input_manager.borrow().reset_ime_request();
 					let instant = Instant::now();
 					let _input_scope = hooks::push_input_manager(Rc::clone(&input_manager));
-					let root_component = Component::new(component, props.clone());
+					let _clipboard_scope = clipboard.map(clipboard::push_clipboard);
+					let root_component = Component::new_with_props(component, props.clone());
 
 					let (commands, ime_request) = {
 						let mut c = clay.begin();
@@ -328,6 +336,12 @@ pub fn create_window<Props: Clone + 'static>(
 					input_manager.borrow_mut().handle_key_event(event);
 				})
 			},
+			on_modifiers_changed: {
+				let input_manager = Rc::clone(&input_manager);
+				Box::new(move |modifiers| {
+					input_manager.borrow_mut().set_modifiers(modifiers);
+				})
+			},
 			on_ime_event: {
 				let input_manager = Rc::clone(&input_manager);
 				Box::new(move |ime| {
@@ -345,4 +359,24 @@ pub fn create_window<Props: Clone + 'static>(
 	);
 
 	winit_app.run();
+}
+
+fn clipboard_for_window(
+	clipboard: &Rc<RefCell<Option<ClipboardHandle>>>,
+	window: &dyn ::winit::window::Window,
+) -> Option<ClipboardHandle> {
+	if let Some(clipboard) = clipboard.borrow().as_ref().cloned() {
+		return Some(clipboard);
+	}
+
+	let display = match window.display_handle().ok()?.as_raw() {
+		RawDisplayHandle::Wayland(handle) => handle.display.as_ptr(),
+		_ => return None,
+	};
+
+	// SAFETY: the pointer comes from the live winit Wayland window/display and the
+	// clipboard is dropped with the UI state before the window backend is torn down.
+	let next = Rc::new(unsafe { WaylandClipboard::new(display) }) as ClipboardHandle;
+	*clipboard.borrow_mut() = Some(next.clone());
+	Some(next)
 }

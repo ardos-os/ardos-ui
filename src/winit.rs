@@ -19,6 +19,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize, Position, Size};
 use winit::event::{ButtonSource, ElementState, Ime, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::keyboard::ModifiersState;
 use winit::raw_window_handle::HasWindowHandle;
 use winit::window::{
 	ImeCapabilities, ImeEnableRequest, ImeHint, ImePurpose, ImeRequest, ImeRequestData,
@@ -96,6 +97,9 @@ impl ApplicationHandler for WinitApp {
 				(self.callbacks.on_key_event)(event);
 				window.request_redraw();
 			}
+			WindowEvent::ModifiersChanged(modifiers) => {
+				(self.callbacks.on_modifiers_changed)(modifiers.state());
+			}
 			WindowEvent::SurfaceResized(size) if size.width != 0 && size.height != 0 => {
 				let Some(SurfaceAndWindow {
 					gl_surface,
@@ -143,7 +147,8 @@ impl ApplicationHandler for WinitApp {
 					return;
 				};
 				skia_surface.canvas().clear(Color::TRANSPARENT);
-				let ime_request = (self.callbacks.on_render_callback)(skia_surface.canvas());
+				let ime_request =
+					(self.callbacks.on_render_callback)(skia_surface.canvas(), window.as_ref());
 				update_window_ime(&mut self.ime_enabled, window.as_ref(), ime_request);
 				skia_context.flush_and_submit();
 				gl_surface
@@ -296,11 +301,12 @@ impl ImeRequestDataExt for ImeRequestData {
 }
 
 pub(crate) struct Callbacks {
-	pub on_render_callback: Box<dyn FnMut(&skia_safe::Canvas) -> ImeFrameRequest>,
+	pub on_render_callback: Box<dyn FnMut(&skia_safe::Canvas, &dyn Window) -> ImeFrameRequest>,
 	pub on_mouse_move: Box<dyn FnMut(f64, f64)>,
 	pub on_window_resize: Box<dyn FnMut(f64, f64)>,
 	pub on_mouse_button: Box<dyn FnMut(bool, u16)>,
 	pub on_key_event: Box<dyn FnMut(KeyEvent)>,
+	pub on_modifiers_changed: Box<dyn FnMut(ModifiersState)>,
 	pub on_ime_event: Box<dyn FnMut(Ime)>,
 }
 pub(crate) struct WinitApp {
