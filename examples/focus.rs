@@ -50,7 +50,6 @@ fn Root(_: ()) -> Box<dyn Element> {
 fn main() {
 	ardos_ui::create_window(
 		Root,
-		(),
 		WindowOptions {
 			title: "Focus Example".into(),
 			..Default::default()

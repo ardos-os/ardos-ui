@@ -1,7 +1,7 @@
 use super::clay_renderer::create_measure_text_function;
 use clay_layout::Clay;
 use skia_safe::{FontMgr, FontStyle, Typeface};
-use std::collections::HashMap;
+use std::{collections::HashMap, fs};
 
 /// Cache key for font requests.
 ///
@@ -65,10 +65,7 @@ impl FontManager {
 		}
 
 		// Cache miss: resolve via font manager and append
-		let typeface = self
-			.font_mgr
-			.match_family_style(family, style)
-			.unwrap_or_else(|| panic!("Font '{}' with style {:?} not found", family, style));
+		let typeface = self.resolve_typeface(family, style);
 
 		self.fonts.push(typeface);
 		self.updated_fonts = true;
@@ -90,5 +87,27 @@ impl FontManager {
 			clay.set_measure_text_function(create_measure_text_function(fonts));
 			self.updated_fonts = false;
 		}
+	}
+
+	fn resolve_typeface(&self, family: &str, style: FontStyle) -> Typeface {
+		for family in [family, "sans-serif", "Roboto", ""] {
+			if let Some(typeface) = self.font_mgr.match_family_style(family, style) {
+				return typeface;
+			}
+		}
+
+		for path in [
+			"/system/fonts/Roboto-Regular.ttf",
+			"/system/fonts/NotoSans-Regular.ttf",
+			"/system/fonts/DroidSans.ttf",
+		] {
+			if let Ok(bytes) = fs::read(path) {
+				if let Some(typeface) = self.font_mgr.new_from_data(&bytes, None) {
+					return typeface;
+				}
+			}
+		}
+
+		panic!("Font '{}' with style {:?} not found", family, style);
 	}
 }

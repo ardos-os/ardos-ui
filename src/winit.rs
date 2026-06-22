@@ -17,7 +17,7 @@ use std::num::NonZeroU32;
 use std::rc::Rc;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize, Position, Size};
-use winit::event::{ButtonSource, ElementState, Ime, KeyEvent, MouseButton, WindowEvent};
+use winit::event::{ElementState, Ime, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::ModifiersState;
 use winit::raw_window_handle::HasWindowHandle;
@@ -45,6 +45,14 @@ impl ApplicationHandler for WinitApp {
 	}
 	fn resumed(&mut self, event_loop: &dyn ActiveEventLoop) {
 		log::trace!("Recreating window in `resumed`");
+		if self.pending_window.is_some() {
+			return;
+		}
+		if self.gl_context.is_none() {
+			self.can_create_surfaces(event_loop);
+			return;
+		}
+
 		// Pick the config which we already use for the context.
 		let gl_config = self.gl_context.as_ref().unwrap().config();
 		let window =
@@ -62,7 +70,11 @@ impl ApplicationHandler for WinitApp {
 
 	fn suspended(&mut self, _event_loop: &dyn ActiveEventLoop) {
 		log::trace!("Android window removed");
+		self.pending_window = None;
 		self.window = None;
+		if self.gl_context.is_none() {
+			return;
+		}
 
 		// Make context not current.
 		self.gl_context = Some(
@@ -101,6 +113,13 @@ impl ApplicationHandler for WinitApp {
 				(self.callbacks.on_modifiers_changed)(modifiers.state());
 			}
 			WindowEvent::SurfaceResized(size) if size.width != 0 && size.height != 0 => {
+				if self.window.is_none() {
+					if let Some((window, gl_config)) = self.pending_window.take() {
+						self.post_opengl_init(window, gl_config);
+					}
+					return;
+				}
+
 				let Some(SurfaceAndWindow {
 					gl_surface,
 					window,
@@ -147,8 +166,13 @@ impl ApplicationHandler for WinitApp {
 					return;
 				};
 				skia_surface.canvas().clear(Color::TRANSPARENT);
+				let canvas = skia_surface.canvas();
+				let scale_factor = window.scale_factor() as f32;
+				canvas.save();
+				canvas.scale((scale_factor, scale_factor));
 				let ime_request =
-					(self.callbacks.on_render_callback)(skia_surface.canvas(), window.as_ref());
+					(self.callbacks.on_render_callback)(canvas, window.as_ref());
+				canvas.restore();
 				update_window_ime(&mut self.ime_enabled, window.as_ref(), ime_request);
 				skia_context.flush_and_submit();
 				gl_surface
@@ -175,9 +199,12 @@ impl ApplicationHandler for WinitApp {
 				state,
 				position: _,
 				primary: true,
-				button: ButtonSource::Mouse(button),
+				button,
 			} => {
 				let Some(SurfaceAndWindow { window, .. }) = self.window.as_mut() else {
+					return;
+				};
+				let Some(button) = button.mouse_button() else {
 					return;
 				};
 				use MouseButton as B;
@@ -207,7 +234,12 @@ impl ApplicationHandler for WinitApp {
 	}
 
 	fn destroy_surfaces(&mut self, _event_loop: &dyn ActiveEventLoop) {
-		let _gl_display = self.gl_context.take().unwrap().display();
+		self.pending_window = None;
+		let Some(gl_context) = self.gl_context.take() else {
+			self.window = None;
+			return;
+		};
+		let _gl_display = gl_context.display();
 
 		self.window = None;
 		if let glutin::display::Display::Egl(display) = _gl_display {
@@ -314,6 +346,7 @@ pub(crate) struct WinitApp {
 	gl_context: Option<PossiblyCurrentContext>,
 	exit_state: color_eyre::Result<()>,
 	window_options: WindowAttributes,
+	pending_window: Option<(Box<dyn Window>, Config)>,
 	window: Option<SurfaceAndWindow>,
 	callbacks: Callbacks,
 	ime_enabled: bool,
@@ -329,12 +362,19 @@ impl WinitApp {
 			window_options: options.clone(),
 			exit_state: Ok(()),
 			gl_context: None,
+			pending_window: None,
 			window: None,
 			callbacks,
 			ime_enabled: false,
 		}
 	}
 	fn post_opengl_init(&mut self, window: Box<dyn Window>, gl_config: Config) {
+		let size = window.surface_size();
+		if size.width == 0 || size.height == 0 {
+			self.pending_window = Some((window, gl_config));
+			return;
+		}
+
 		// Create gl context.
 		self.gl_context =
 			Some(create_gl_context(window.as_ref(), &gl_config).treat_as_possibly_current());
@@ -456,6 +496,20 @@ impl WinitApp {
 	}
 	pub(crate) fn run(self) {
 		let event_loop = EventLoop::new().unwrap();
+		event_loop.set_control_flow(ControlFlow::Wait);
+		event_loop.run_app(self).unwrap();
+	}
+
+	#[cfg(target_os = "android")]
+	pub(crate) fn run_android(self, app: winit::platform::android::activity::AndroidApp) {
+		use winit::error::EventLoopError;
+		use winit::platform::android::EventLoopBuilderExtAndroid;
+
+		let event_loop = match EventLoop::builder().with_android_app(app).build() {
+			Ok(event_loop) => event_loop,
+			Err(EventLoopError::RecreationAttempt) => return,
+			Err(err) => panic!("{err}"),
+		};
 		event_loop.set_control_flow(ControlFlow::Wait);
 		event_loop.run_app(self).unwrap();
 	}

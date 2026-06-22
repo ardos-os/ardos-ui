@@ -54,7 +54,6 @@ fn main() {
 
 	ardos_ui::create_window(
 		counter_component,
-		(),
 		WindowOptions {
 			title: "Welcome to Ardos UI".into(),
 			preferred_size: (400.0, 300.0),

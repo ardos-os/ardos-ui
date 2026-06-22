@@ -155,7 +155,6 @@ fn Root(_: ()) -> Box<dyn Element> {
 fn main() {
 	ardos_ui::create_window(
 		Root,
-		(),
 		WindowOptions {
 			title: "Backdrop Blur + Floating Example".into(),
 			preferred_size: (920.0, 560.0),

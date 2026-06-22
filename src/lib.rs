@@ -25,15 +25,19 @@ pub use input::{InputManager, NamedKey, NativeKey};
 pub use render_context::RenderContext;
 pub use util::frame_pool::{FrameAllocator, FramePool};
 pub use window_options::WindowOptions;
+#[cfg(target_os = "android")]
+pub use ::winit::platform::android::activity::AndroidApp;
 
 use crate::{
 	clay_renderer::clay_skia_render,
-	clipboard::WaylandClipboard,
 	focus_system::GLOBAL_FOCUS_MANAGER,
 	font_manager::FontManager,
 	input::Key,
 	winit::{Callbacks, ImeFrameRequest, WinitApp},
 };
+#[cfg(all(unix, not(target_os = "android")))]
+use crate::clipboard::WaylandClipboard;
+#[cfg(all(unix, not(target_os = "android")))]
 use ::winit::raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 
 /// Internal helpers used by the `rsml!` macro expansion.
@@ -91,8 +95,6 @@ impl GlobalClosure for std::thread::LocalKey<RefCell<Box<dyn Fn()>>> {
 /// - `component`: A function or closure representing the root component of your UI.
 ///   It must accept the given `props` and return a `Box<dyn Element>`.
 ///   The component will be automatically wrapped in a [`Component`] to ensure context and state isolation.
-/// - `props`: The initial properties to be passed to the root component.
-///   Must implement [`Clone`] and `'static`.
 /// - `options`: Window configuration options such as title, preferred size, layer mode, etc.
 ///   See [`WindowOptions`] for details.
 ///
@@ -108,7 +110,6 @@ impl GlobalClosure for std::thread::LocalKey<RefCell<Box<dyn Fn()>>> {
 /// fn main() {
 ///     create_window(
 ///         root_component,
-///         (),
 ///         WindowOptions {
 ///             title: "My Ardos UI App".into(),
 ///             preferred_size: (400.0, 300.0),
@@ -143,7 +144,22 @@ pub fn create_window<Props: Default + Clone + 'static>(
 	component: impl Clone + Copy + Fn(Props) -> Box<dyn Element> + 'static,
 	options: WindowOptions,
 ) {
-	
+	build_window(component, options).run();
+}
+
+#[cfg(target_os = "android")]
+pub fn create_window_android<Props: Default + Clone + 'static>(
+	component: impl Clone + Copy + Fn(Props) -> Box<dyn Element> + 'static,
+	app: ::winit::platform::android::activity::AndroidApp,
+	options: WindowOptions,
+) {
+	build_window(component, options).run_android(app);
+}
+
+fn build_window<Props: Default + Clone + 'static>(
+	component: impl Clone + Copy + Fn(Props) -> Box<dyn Element> + 'static,
+	options: WindowOptions,
+) -> WinitApp {
 	color_eyre::install().ok();
 
 	let initial_size = if options.preferred_size != (0.0, 0.0) {
@@ -164,7 +180,6 @@ pub fn create_window<Props: Default + Clone + 'static>(
 		Callbacks {
 			on_render_callback: {
 				let clay = Rc::clone(&clay);
-				clay.borrow().set_debug_mode(true);
 				let input_manager = Rc::clone(&input_manager);
 				let clipboard = Rc::clone(&clipboard);
 
@@ -358,9 +373,10 @@ pub fn create_window<Props: Default + Clone + 'static>(
 		},
 	);
 
-	winit_app.run();
+	winit_app
 }
 
+#[cfg(all(unix, not(target_os = "android")))]
 fn clipboard_for_window(
 	clipboard: &Rc<RefCell<Option<ClipboardHandle>>>,
 	window: &dyn ::winit::window::Window,
@@ -379,4 +395,12 @@ fn clipboard_for_window(
 	let next = Rc::new(unsafe { WaylandClipboard::new(display) }) as ClipboardHandle;
 	*clipboard.borrow_mut() = Some(next.clone());
 	Some(next)
+}
+
+#[cfg(not(all(unix, not(target_os = "android"))))]
+fn clipboard_for_window(
+	_clipboard: &Rc<RefCell<Option<ClipboardHandle>>>,
+	_window: &dyn ::winit::window::Window,
+) -> Option<ClipboardHandle> {
+	None
 }
