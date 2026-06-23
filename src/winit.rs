@@ -17,7 +17,10 @@ use std::num::NonZeroU32;
 use std::rc::Rc;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize, Position, Size};
-use winit::event::{ElementState, Ime, KeyEvent, MouseButton, WindowEvent};
+use winit::event::{
+	ButtonSource, ElementState, Ime, KeyEvent, MouseScrollDelta, PointerSource, TouchPhase,
+	WindowEvent,
+};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::ModifiersState;
 use winit::raw_window_handle::HasWindowHandle;
@@ -165,13 +168,14 @@ impl ApplicationHandler for WinitApp {
 				else {
 					return;
 				};
+				window.request_redraw();
+
 				skia_surface.canvas().clear(Color::TRANSPARENT);
 				let canvas = skia_surface.canvas();
 				let scale_factor = window.scale_factor() as f32;
 				canvas.save();
 				canvas.scale((scale_factor, scale_factor));
-				let ime_request =
-					(self.callbacks.on_render_callback)(canvas, window.as_ref());
+				let ime_request = (self.callbacks.on_render_callback)(canvas, window.as_ref());
 				canvas.restore();
 				update_window_ime(&mut self.ime_enabled, window.as_ref(), ime_request);
 				skia_context.flush_and_submit();
@@ -179,49 +183,53 @@ impl ApplicationHandler for WinitApp {
 					.swap_buffers(self.gl_context.as_ref().unwrap())
 					.unwrap();
 
-				log::debug!("Render");
 			}
 			WindowEvent::PointerMoved {
 				device_id: _,
 				position,
-				primary: true,
-				source: _,
+				primary: _,
+				source,
 			} => {
 				let Some(SurfaceAndWindow { window, .. }) = self.window.as_mut() else {
 					return;
 				};
-				let mouse_position = position.to_logical(window.scale_factor());
-				(self.callbacks.on_mouse_move)(mouse_position.x, mouse_position.y);
+				let position = position.to_logical(window.scale_factor());
+				(self.callbacks.on_pointer_move)(position.x, position.y, source);
 				window.request_redraw();
 			}
 			WindowEvent::PointerButton {
 				device_id: _,
 				state,
-				position: _,
-				primary: true,
+				position,
+				primary: _,
 				button,
 			} => {
 				let Some(SurfaceAndWindow { window, .. }) = self.window.as_mut() else {
 					return;
 				};
-				let Some(button) = button.mouse_button() else {
+				window.request_redraw();
+
+				let position = position.to_logical(window.scale_factor());
+				let pressed = matches!(state, ElementState::Pressed);
+				(self.callbacks.on_pointer_button)(pressed, position.x, position.y, button);
+			}
+			WindowEvent::MouseWheel {
+				device_id: _,
+				delta,
+				phase,
+			} => {
+				let Some(SurfaceAndWindow { window, .. }) = self.window.as_mut() else {
 					return;
 				};
-				use MouseButton as B;
-				(self.callbacks.on_mouse_button)(
-					match state {
-						ElementState::Pressed => true,
-						ElementState::Released => false,
-					},
-					match button {
-						B::Left => 0,
-						B::Right => 1,
-						B::Middle => 2,
-						B::Back => 3,
-						B::Forward => 4,
-						other => other as u16,
-					},
-				);
+				dbg!(&delta, &phase);
+				let (x, y) = match delta {
+					MouseScrollDelta::LineDelta(x, y) => (-x * 40.0, -y * 40.0),
+					MouseScrollDelta::PixelDelta(position) => {
+						let position = position.to_logical::<f64>(window.scale_factor());
+						(-position.x as f32, -position.y as f32)
+					}
+				};
+				(self.callbacks.on_mouse_wheel)(x, y, phase);
 				window.request_redraw();
 			}
 			_ => {
@@ -334,9 +342,10 @@ impl ImeRequestDataExt for ImeRequestData {
 
 pub(crate) struct Callbacks {
 	pub on_render_callback: Box<dyn FnMut(&skia_safe::Canvas, &dyn Window) -> ImeFrameRequest>,
-	pub on_mouse_move: Box<dyn FnMut(f64, f64)>,
+	pub on_pointer_move: Box<dyn FnMut(f64, f64, PointerSource)>,
 	pub on_window_resize: Box<dyn FnMut(f64, f64)>,
-	pub on_mouse_button: Box<dyn FnMut(bool, u16)>,
+	pub on_pointer_button: Box<dyn FnMut(bool, f64, f64, ButtonSource)>,
+	pub on_mouse_wheel: Box<dyn FnMut(f32, f32, TouchPhase)>,
 	pub on_key_event: Box<dyn FnMut(KeyEvent)>,
 	pub on_modifiers_changed: Box<dyn FnMut(ModifiersState)>,
 	pub on_ime_event: Box<dyn FnMut(Ime)>,

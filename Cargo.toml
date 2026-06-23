@@ -20,11 +20,9 @@ smithay-clipboard = "0.7.3"
 [target.'cfg(target_os = "android")'.dependencies]
 android_clipboard = "0.1.0"
 
-[dependencies.clay-layout]
-features = ["debug"]
-git = "https://github.com/coffeeispower/clay-rs"
-#branch = "tibs-version"
-rev = "59f2f5a607dac5df2fd7cd8dda7fb49ddd910c4f"
+[dependencies.rlay]
+package = "rlay"
+git = "https://github.com/ardos-os/rlay"
 
 [dev-dependencies]
 env_logger = "0.11.8"

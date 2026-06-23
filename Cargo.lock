@@ -134,12 +134,12 @@ version = "0.1.0"
 dependencies = [
  "android_clipboard",
  "ardos-ui-rsml-compiler",
- "clay-layout",
  "color-eyre",
  "env_logger",
  "glutin",
  "glutin-winit",
  "log",
+ "rlay",
  "skia-safe",
  "smithay-clipboard",
  "uuid",
@@ -345,14 +345,6 @@ dependencies = [
  "glob",
  "libc",
  "libloading",
-]
-
-[[package]]
-name = "clay-layout"
-version = "0.4.0"
-source = "git+https://github.com/coffeeispower/clay-rs?rev=59f2f5a607dac5df2fd7cd8dda7fb49ddd910c4f#59f2f5a607dac5df2fd7cd8dda7fb49ddd910c4f"
-dependencies = [
- "cc",
 ]
 
 [[package]]
@@ -1385,6 +1377,11 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+
+[[package]]
+name = "rlay"
+version = "0.1.0"
+source = "git+https://github.com/ardos-os/rlay#a70fd2f7215f7c2408ee23380cdabaf5a82904e1"
 
 [[package]]
 name = "rustc-demangle"

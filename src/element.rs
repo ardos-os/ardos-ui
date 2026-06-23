@@ -1,9 +1,9 @@
+pub mod boxed;
 pub mod component;
 pub mod container;
 pub mod input;
-pub mod text;
 pub mod option;
-pub mod boxed;
+pub mod text;
 use std::collections::HashSet;
 
 use uuid::Uuid;
@@ -60,13 +60,10 @@ impl Element for Box<dyn Element> {
 	}
 }
 
-
 pub trait ElementExt: Sized + Element + 'static {
 	fn boxed(self) -> Box<dyn Element + 'static> {
 		Box::new(self)
 	}
 }
 
-impl<T: Sized + Element + 'static> ElementExt for T {
-
-}
+impl<T: Sized + Element + 'static> ElementExt for T {}

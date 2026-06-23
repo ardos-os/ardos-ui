@@ -1,7 +1,6 @@
-use super::clay_renderer::create_measure_text_function;
-use clay_layout::Clay;
+use rlay::{Size, TextStyle};
 use skia_safe::{FontMgr, FontStyle, Typeface};
-use std::{collections::HashMap, fs};
+use std::{cell::RefCell, collections::HashMap, fs, rc::Rc};
 
 /// Cache key for font requests.
 ///
@@ -33,8 +32,7 @@ impl FontKey {
 }
 
 pub struct FontManager {
-	fonts: Vec<Typeface>,
-	updated_fonts: bool,
+	fonts: Rc<RefCell<Vec<Typeface>>>,
 	font_mgr: FontMgr,
 
 	/// Maps a requested (family, style) to an already-loaded font id.
@@ -44,11 +42,14 @@ pub struct FontManager {
 impl FontManager {
 	pub fn new() -> Self {
 		FontManager {
-			fonts: Vec::new(),
-			updated_fonts: true,
+			fonts: Rc::new(RefCell::new(Vec::new())),
 			font_mgr: FontMgr::new(),
 			cache: HashMap::new(),
 		}
+	}
+
+	pub fn measure_handle(&self) -> Rc<RefCell<Vec<Typeface>>> {
+		Rc::clone(&self.fonts)
 	}
 
 	/// Loads a font by family and style, appends it if not already present, and returns its numeric ID (0-based).
@@ -60,33 +61,23 @@ impl FontManager {
 			return id;
 		}
 
-		if self.fonts.len() > u16::MAX as usize {
+		if self.fonts.borrow().len() > u16::MAX as usize {
 			panic!("Too many fonts loaded");
 		}
 
 		// Cache miss: resolve via font manager and append
 		let typeface = self.resolve_typeface(family, style);
 
-		self.fonts.push(typeface);
-		self.updated_fonts = true;
+		self.fonts.borrow_mut().push(typeface);
 
-		let id = (self.fonts.len() as u16) - 1;
+		let id = (self.fonts.borrow().len() as u16) - 1;
 		self.cache.insert(key, id);
 		id
 	}
 
 	/// Returns a slice of all loaded fonts.
-	pub fn get_fonts(&self) -> &[Typeface] {
-		&self.fonts
-	}
-
-	/// Creates a clay measure function using the loaded fonts.
-	pub fn update_clay_measure_function(&mut self, clay: &mut Clay) {
-		if self.updated_fonts {
-			let fonts = self.fonts.clone();
-			clay.set_measure_text_function(create_measure_text_function(fonts));
-			self.updated_fonts = false;
-		}
+	pub fn get_fonts(&self) -> Rc<RefCell<Vec<Typeface>>> {
+		Rc::clone(&self.fonts)
 	}
 
 	fn resolve_typeface(&self, family: &str, style: FontStyle) -> Typeface {
@@ -110,4 +101,14 @@ impl FontManager {
 
 		panic!("Font '{}' with style {:?} not found", family, style);
 	}
+}
+
+pub fn measure_text(fonts: &Rc<RefCell<Vec<Typeface>>>, text: &str, style: &TextStyle) -> Size {
+	let fonts = fonts.borrow();
+	let Some(typeface) = fonts.get(style.font_id as usize) else {
+		return Size::new(0.0, style.font_size);
+	};
+	let font = skia_safe::Font::new(typeface, style.font_size);
+	let width = font.measure_str(text, None).0;
+	Size::new(width, font.metrics().1.bottom - font.metrics().1.top)
 }

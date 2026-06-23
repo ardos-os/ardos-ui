@@ -1,14 +1,14 @@
 use skia_safe::{FontStyle, font_style::Width};
 
 use crate::{Element, RenderContext};
-pub use clay_layout::text::TextAlignment;
+pub use rlay::TextAlign as TextAlignment;
 pub struct Text {
 	pub text: String,
 	pub font_family: String,
 	pub font_weight: i32,
 	pub italic: bool,
 	pub font_size: u16,
-	pub color: clay_layout::Color,
+	pub color: rlay::Color,
 	pub alignment: TextAlignment,
 }
 
@@ -41,7 +41,7 @@ impl Text {
 		self
 	}
 
-	pub fn color(mut self, color: impl Into<clay_layout::Color>) -> Self {
+	pub fn color(mut self, color: impl Into<rlay::Color>) -> Self {
 		self.color = color.into();
 		self
 	}
@@ -68,13 +68,15 @@ impl Element for Text {
 				skia_safe::font_style::Slant::Upright
 			},
 		);
-		let text_config = clay_layout::text::TextConfig::new()
-			.font_size(self.font_size)
-			.color(self.color.clone())
-			.alignment(self.alignment)
-			.font_id(ctx.font_manager.get(&self.font_family, skia_font_style))
-			.end();
-		ctx.font_manager.update_clay_measure_function(&mut ctx.c);
-		ctx.c.text(&self.text, text_config);
+		ctx.frame.text(
+			&self.text,
+			rlay::TextStyle {
+				font_size: self.font_size as f32,
+				color: self.color,
+				align: self.alignment,
+				font_id: ctx.font_manager.get(&self.font_family, skia_font_style),
+				..Default::default()
+			},
+		);
 	}
 }

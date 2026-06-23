@@ -103,17 +103,17 @@ fn Root(_: ()) -> Box<dyn Element> {
 			<container
 				floating={true}
 				floating_z_index={50}
-				floating_attach_to={clay_layout::elements::FloatingAttachToElement::Root}
+				floating_attach_to={FloatingAttachToElement::Root}
 				floating_attach_points={
 					(
-						clay_layout::elements::FloatingAttachPointType::CenterCenter,
-						clay_layout::elements::FloatingAttachPointType::CenterCenter,
+						FloatingAttachPointType::CenterCenter,
+						FloatingAttachPointType::CenterCenter,
 					)
 				}
 				floating_offset={(0.0, 0.0)}
 				w_fit
 				h_fit
-				floating_pointer_capture_mode={clay_layout::elements::PointerCaptureMode::Passthrough}
+				floating_pointer_capture_mode={PointerCaptureMode::Passthrough}
 
 				rounded={16.0}
 				padding_all={16}

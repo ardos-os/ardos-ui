@@ -122,17 +122,20 @@ pub fn Input(props: InputProps) -> Box<dyn Element> {
 				next.selection_focus = chars_count(&next.value);
 				next.cursor = next.selection_focus;
 				state_changed = true;
-			} else if input.primary_modifier_pressed() && character_key_pressed(input, "c", props.repeat) {
+			} else if input.primary_modifier_pressed() && character_key_pressed(input, "c", props.repeat)
+			{
 				if let Some(text) = selected_text(&next) {
 					clipboard.set_text(&text);
 				}
-			} else if input.primary_modifier_pressed() && character_key_pressed(input, "x", props.repeat) {
+			} else if input.primary_modifier_pressed() && character_key_pressed(input, "x", props.repeat)
+			{
 				if let Some(text) = selected_text(&next) {
 					clipboard.set_text(&text);
 					delete_selection(&mut next);
 					state_changed = true;
 				}
-			} else if input.primary_modifier_pressed() && character_key_pressed(input, "v", props.repeat) {
+			} else if input.primary_modifier_pressed() && character_key_pressed(input, "v", props.repeat)
+			{
 				if let Some(text) = clipboard.get_text() {
 					insert_text(&mut next, &text);
 					state_changed = true;
@@ -203,7 +206,9 @@ pub fn Input(props: InputProps) -> Box<dyn Element> {
 
 	let state = state.borrow();
 	let cursor_byte = char_index_to_byte_index(&state.value, state.cursor);
-	let (selection_start, selection_end) = state.selected_range().unwrap_or((state.cursor, state.cursor));
+	let (selection_start, selection_end) = state
+		.selected_range()
+		.unwrap_or((state.cursor, state.cursor));
 	let selection_start_byte = char_index_to_byte_index(&state.value, selection_start);
 	let selection_end_byte = char_index_to_byte_index(&state.value, selection_end);
 

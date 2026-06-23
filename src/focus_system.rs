@@ -1,7 +1,4 @@
-use std::{
-	cell::RefCell,
-	collections::{HashMap, HashSet},
-};
+use std::{cell::RefCell, collections::HashMap};
 use uuid::Uuid;
 
 #[derive(Clone, Copy)]
@@ -117,7 +114,6 @@ impl FocusManager {
 	}
 
 	pub fn focus_next(&mut self) {
-
 		let mut next = self
 			.current
 			.and_then(|cur| self.focus_nodes[&cur].next)

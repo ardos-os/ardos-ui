@@ -1,4 +1,4 @@
-use ardos_ui::{Element, WindowOptions, rsml, use_state};
+use ardos_ui::{ContainerStyle, Element, WindowOptions, rsml, use_state};
 
 fn counter_component(_: ()) -> Box<dyn Element> {
 	let (count, set_count) = use_state(0);
@@ -26,6 +26,8 @@ fn counter_component(_: ()) -> Box<dyn Element> {
 							padding_all={16}
 							rounded={8.0}
 							on_click={move || set_count(count + 1)}
+							style_if_hovered={|s| ContainerStyle {background_color: (0x00, 0x7a/2, 0xcc/2).into(), ..s}}
+							style_if_pressed={|s| ContainerStyle {background_color: (0x00, 0x7a/3, 0xcc/3).into(), ..s}}
 							center>
 								<text
 										font_size={16}

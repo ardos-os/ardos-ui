@@ -195,10 +195,6 @@ struct Token {
 	expr_tokens: Option<TokenStream2>,
 }
 
-
-
-
-
 // ============================================================================
 // CODE GENERATOR
 // ============================================================================
@@ -237,7 +233,10 @@ static BOOLEAN_ATTR_RULES: LazyLock<HashMap<(&'static str, &'static str), Boolea
 		m.insert(("container", "w_fit"), BooleanAttrKind::FlagMethod);
 		m.insert(("container", "center"), BooleanAttrKind::FlagMethod);
 		m.insert(("container", "focusable"), BooleanAttrKind::FlagMethod);
-		m.insert(("container", "focus_container"), BooleanAttrKind::FlagMethod);
+		m.insert(
+			("container", "focus_container"),
+			BooleanAttrKind::FlagMethod,
+		);
 
 		// Text-only boolean flag methods (0-arg)
 		m.insert(("text", "text_center"), BooleanAttrKind::FlagMethod);
@@ -250,8 +249,6 @@ static BOOLEAN_ATTR_RULES: LazyLock<HashMap<(&'static str, &'static str), Boolea
 		m
 	});
 
-
-
 impl CodeGenerator {
 	fn new() -> Self {
 		Self
@@ -263,11 +260,7 @@ impl CodeGenerator {
 	}
 
 	/// Generate Rust tokens for a DOM node, with option to wrap in `Box::new(...)`.
-	fn generate_with_box(
-		&self,
-		node: &Node,
-		wrap_in_box: bool,
-	) -> Result<TokenStream2, syn::Error> {
+	fn generate_with_box(&self, node: &Node, wrap_in_box: bool) -> Result<TokenStream2, syn::Error> {
 		let code = match node {
 			Node::Element(element) => self.generate_element_inner(element)?,
 			Node::Text(text) => {
@@ -275,10 +268,12 @@ impl CodeGenerator {
 				quote! { ardos_ui::Text::new(#lit) }
 			}
 			Node::Expression(expr) => {
-				let parsed: syn::Expr = syn::parse2(expr.value.clone()).or_else(|_| {
-					let ts = expr.value.clone();
-					syn::parse2::<syn::Expr>(quote! { ( #ts ) })
-				}).map_err(|e| syn::Error::new(expr.span, e.to_string()))?;
+				let parsed: syn::Expr = syn::parse2(expr.value.clone())
+					.or_else(|_| {
+						let ts = expr.value.clone();
+						syn::parse2::<syn::Expr>(quote! { ( #ts ) })
+					})
+					.map_err(|e| syn::Error::new(expr.span, e.to_string()))?;
 				quote! { #parsed }
 			}
 		};
@@ -393,15 +388,15 @@ impl CodeGenerator {
 								e.span,
 								format!(
 									"Invalid Rust expression in attribute `{}` on `<{}>`: {}\nExpression was:\n{}",
-									attr_name_str, tag_name, err, e.value.to_string()
+									attr_name_str,
+									tag_name,
+									err,
+									e.value.to_string()
 								),
 							)
 						})?;
 
-					if let Some(kind) = BOOLEAN_ATTR_RULES
-						.get(&(tag_name, attr_name_str))
-						.copied()
-					{
+					if let Some(kind) = BOOLEAN_ATTR_RULES.get(&(tag_name, attr_name_str)).copied() {
 						match kind {
 							BooleanAttrKind::FlagMethod => {
 								// Ensure condition expression is wrapped as a "bool-like" identity macro.
@@ -421,10 +416,7 @@ impl CodeGenerator {
 					}
 				}
 				None => {
-					if let Some(kind) = BOOLEAN_ATTR_RULES
-						.get(&(tag_name, attr_name_str))
-						.copied()
-					{
+					if let Some(kind) = BOOLEAN_ATTR_RULES.get(&(tag_name, attr_name_str)).copied() {
 						match kind {
 							BooleanAttrKind::FlagMethod => {
 								code = quote! { #code . #method_ident () };
@@ -552,10 +544,6 @@ impl CodeGenerator {
 			})
 		}
 	}
-
-
-
-
 }
 
 // ============================================================================
@@ -868,7 +856,10 @@ impl TokenVectorParser {
 				None
 			};
 
-			attributes.push(Attribute { name: attr_name, value });
+			attributes.push(Attribute {
+				name: attr_name,
+				value,
+			});
 		}
 
 		Ok(attributes)
@@ -1099,7 +1090,10 @@ mod tests {
 						println!("FAIL (parse error)");
 						println!("  Message: {}", parse_error);
 						println!("  Debug: {:#?}", parse_error);
-						println!("  Spanned compile_error!: {}", parse_error.to_compile_error());
+						println!(
+							"  Spanned compile_error!: {}",
+							parse_error.to_compile_error()
+						);
 					}
 					Err(_) => {
 						println!("FAIL (panic during parsing)");
@@ -1125,7 +1119,9 @@ mod tests {
 		// Test expression handling specifically
 		let rsml_input = r#"<text>{format!("Count: {}", count)}</text>"#;
 
-		let ts: proc_macro2::TokenStream = rsml_input.parse().expect("fixture must parse to TokenStream");
+		let ts: proc_macro2::TokenStream = rsml_input
+			.parse()
+			.expect("fixture must parse to TokenStream");
 		let rsml_input = ts.to_string();
 
 		match TokenTreeTokenizer::new(ts).parse() {

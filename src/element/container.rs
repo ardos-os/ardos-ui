@@ -5,25 +5,48 @@ use crate::focus_system::GLOBAL_FOCUS_MANAGER;
 use crate::render_context::RenderContext;
 use crate::{Component, element::Element};
 use crate::{begin_component, end_component, use_ref};
-use clay_layout::{
-	Color, Declaration,
-	layout::{Alignment, LayoutDirection, Padding},
-	math::{Dimensions, Vector2},
-	elements::{FloatingAttachPointType, FloatingAttachToElement, PointerCaptureMode},
-};
 use clickable::Clickable;
 pub use clickable::ClickableState;
-pub type Justify = clay_layout::layout::LayoutAlignmentX;
-pub type Align = clay_layout::layout::LayoutAlignmentY;
-pub type Sizing = clay_layout::layout::Sizing;
+use rlay::{
+	AlignX, AlignY, Anchor, AttachTo, AxisSize, Color, Floating, Layout, Node, Padding,
+	PointerCapture, Size, Vector,
+};
+pub type Justify = AlignX;
+pub type Align = AlignY;
 
-// Note: we intentionally use `clay_layout`'s floating enums directly (imported above)
-// to avoid type mismatches when forwarding to `Declaration::floating()`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Sizing {
+	Fit(f32, f32),
+	Grow(f32, f32),
+	Fixed(f32),
+	Percent(f32),
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct FloatingAttachPoints {
 	pub element: FloatingAttachPointType,
 	pub parent: FloatingAttachPointType,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum FloatingAttachPointType {
+	LeftTop,
+	CenterCenter,
+	RightBottom,
+}
+
+#[derive(Debug, Clone)]
+pub enum FloatingAttachToElement {
+	None,
+	Parent,
+	Root,
+	Element(String),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum PointerCaptureMode {
+	Capture,
+	Passthrough,
 }
 
 impl Default for FloatingAttachPoints {
@@ -38,8 +61,8 @@ impl Default for FloatingAttachPoints {
 /// Options forwarded to Clay's floating configuration via `Declaration::floating()`.
 #[derive(Debug, Clone)]
 pub struct FloatingOptions {
-	pub offset: Vector2,
-	pub dimensions: Dimensions,
+	pub offset: Vector,
+	pub dimensions: Size,
 	pub z_index: i16,
 	pub parent_id: u32,
 	pub attach_points: FloatingAttachPoints,
@@ -50,8 +73,8 @@ pub struct FloatingOptions {
 impl Default for FloatingOptions {
 	fn default() -> Self {
 		Self {
-			offset: Vector2::new(0.0, 0.0),
-			dimensions: Dimensions::new(0.0, 0.0),
+			offset: Vector::new(0.0, 0.0),
+			dimensions: Size::new(0.0, 0.0),
 			z_index: 0,
 			parent_id: 0,
 			attach_points: Default::default(),
@@ -344,29 +367,41 @@ impl Container {
 	}
 
 	/// Sets Clay floating offset. Accepts either a `Vector2` or `(f32, f32)`.
-	pub fn floating_offset(mut self, offset: impl Into<Vector2>) -> Self {
-		let floating = self.style.floating.get_or_insert_with(FloatingOptions::default);
+	pub fn floating_offset(mut self, offset: impl Into<Vector>) -> Self {
+		let floating = self
+			.style
+			.floating
+			.get_or_insert_with(FloatingOptions::default);
 		floating.offset = offset.into();
 		self
 	}
 
 	/// Sets Clay floating dimensions. Accepts either `Dimensions` or `(f32, f32)`.
-	pub fn floating_dimensions(mut self, dimensions: impl Into<Dimensions>) -> Self {
-		let floating = self.style.floating.get_or_insert_with(FloatingOptions::default);
+	pub fn floating_dimensions(mut self, dimensions: impl Into<Size>) -> Self {
+		let floating = self
+			.style
+			.floating
+			.get_or_insert_with(FloatingOptions::default);
 		floating.dimensions = dimensions.into();
 		self
 	}
 
 	/// Sets Clay floating Z-index.
 	pub fn floating_z_index(mut self, z_index: i16) -> Self {
-		let floating = self.style.floating.get_or_insert_with(FloatingOptions::default);
+		let floating = self
+			.style
+			.floating
+			.get_or_insert_with(FloatingOptions::default);
 		floating.z_index = z_index;
 		self
 	}
 
 	/// Sets Clay floating parent ID.
 	pub fn floating_parent_id(mut self, parent_id: u32) -> Self {
-		let floating = self.style.floating.get_or_insert_with(FloatingOptions::default);
+		let floating = self
+			.style
+			.floating
+			.get_or_insert_with(FloatingOptions::default);
 		floating.parent_id = parent_id;
 		self
 	}
@@ -380,21 +415,30 @@ impl Container {
 		attach_points: (FloatingAttachPointType, FloatingAttachPointType),
 	) -> Self {
 		let (element, parent) = attach_points;
-		let floating = self.style.floating.get_or_insert_with(FloatingOptions::default);
+		let floating = self
+			.style
+			.floating
+			.get_or_insert_with(FloatingOptions::default);
 		floating.attach_points = FloatingAttachPoints { element, parent };
 		self
 	}
 
 	/// Sets Clay floating attach-to mode.
 	pub fn floating_attach_to(mut self, attach_to: FloatingAttachToElement) -> Self {
-		let floating = self.style.floating.get_or_insert_with(FloatingOptions::default);
+		let floating = self
+			.style
+			.floating
+			.get_or_insert_with(FloatingOptions::default);
 		floating.attach_to = attach_to;
 		self
 	}
 
 	/// Sets Clay floating pointer capture mode.
 	pub fn floating_pointer_capture_mode(mut self, mode: PointerCaptureMode) -> Self {
-		let floating = self.style.floating.get_or_insert_with(FloatingOptions::default);
+		let floating = self
+			.style
+			.floating
+			.get_or_insert_with(FloatingOptions::default);
 		floating.pointer_capture_mode = mode;
 		self
 	}
@@ -682,114 +726,137 @@ impl Container {
 	}
 }
 
+fn axis_size(size: Sizing) -> AxisSize {
+	match size {
+		Sizing::Fit(min, max) => AxisSize::Fit { min, max },
+		Sizing::Grow(min, max) => AxisSize::Grow { min, max },
+		Sizing::Fixed(size) => AxisSize::Fixed(size),
+		Sizing::Percent(percentage) => AxisSize::Percent(percentage),
+	}
+}
+
+fn anchor(point: FloatingAttachPointType) -> Anchor {
+	match point {
+		FloatingAttachPointType::LeftTop => Anchor::TOP_LEFT,
+		FloatingAttachPointType::CenterCenter => Anchor::CENTER,
+		FloatingAttachPointType::RightBottom => Anchor::BOTTOM_RIGHT,
+	}
+}
+
+fn floating_options(options: &FloatingOptions) -> Floating {
+	Floating {
+		attach_to: match &options.attach_to {
+			FloatingAttachToElement::None | FloatingAttachToElement::Parent => AttachTo::Parent,
+			FloatingAttachToElement::Root => AttachTo::Root,
+			FloatingAttachToElement::Element(id) => AttachTo::Element(id.clone()),
+		},
+		element_anchor: anchor(options.attach_points.element),
+		target_anchor: anchor(options.attach_points.parent),
+		offset: options.offset,
+		z_index: options.z_index,
+		pointer_capture: match options.pointer_capture_mode {
+			PointerCaptureMode::Capture => PointerCapture::Capture,
+			PointerCaptureMode::Passthrough => PointerCapture::PassThrough,
+		},
+		clip_to_parent: false,
+	}
+}
+
 impl Element for Container {
 	fn render<'clay: 'render, 'render>(&'render self, ctx: &mut RenderContext<'clay, 'render, '_>) {
-		ctx.c.with_styling(
-			|c| {
-				let mut clickable_state = self.clickable_state.borrow_mut();
-				if let Some(clickable) = &self.clickable {
-					clickable.update(ctx.input_manager, &mut clickable_state, c.hovered());
-				}
-				let mut declaration = Declaration::new();
-				let mut effective_style = self.style.clone();
-				if c.hovered() {
-					effective_style = (self.style_if_hovered)(effective_style);
-				}
+		let mut effective_style = self.style.clone();
+		let mut clickable_state = self.clickable_state.borrow_mut();
 
-				if clickable_state.down {
-					effective_style = (self.style_if_pressed)(effective_style);
-				}
-				if clickable_state.is_focused() {
-					effective_style = (self.style_if_focused)(effective_style);
-				}
-				declaration
-					.layout()
-					.direction(match effective_style.direction {
-						Direction::Row => LayoutDirection::LeftToRight,
-						Direction::Column => LayoutDirection::TopToBottom,
-					})
-					.width(effective_style.size.0)
-					.height(effective_style.size.1)
-					.child_gap(effective_style.gap)
-					.child_alignment(Alignment::new(
-						effective_style.justify,
-						effective_style.align,
-					))
-					.padding(Padding::new(
-						effective_style.padding.0,
-						effective_style.padding.1,
-						effective_style.padding.2,
-						effective_style.padding.3,
-					))
-					.end()
-					.corner_radius()
-					.top_left(effective_style.border_radius.0)
-					.top_right(effective_style.border_radius.1)
-					.bottom_left(effective_style.border_radius.2)
-					.bottom_right(effective_style.border_radius.3)
-					.end()
-					.border()
-					.between_children(effective_style.border.width.between_children)
-					.color(effective_style.border.color)
-					.top(effective_style.border.width.top)
-					.right(effective_style.border.width.right)
-					.bottom(effective_style.border.width.bottom)
-					.left(effective_style.border.width.left)
-					.end()
-					.background_color(effective_style.background_color);
+		let node_id = effective_style.id.clone().or_else(|| {
+			self
+				.clickable
+				.as_ref()
+				.map(|_| format!("__ardos_clickable_{}", clickable_state.stable_id))
+		});
 
-				if let Some(id) = &effective_style.id {
-					declaration.id(c.id(id));
-				}
+		if let Some(clickable) = &self.clickable {
+			if let Some(id) = node_id.as_deref() {
+				clickable.update(
+					id,
+					&mut clickable_state,
+					&ctx.interaction.pointers,
+					ctx.interaction.enter_pressed,
+					ctx.interaction.enter_down,
+					ctx.interaction.context_menu_pressed,
+					ctx.interaction.context_menu_down,
+				);
+			}
+		}
+		let hovered = clickable_state.hovered;
+		if hovered {
+			effective_style = (self.style_if_hovered)(effective_style);
+		}
+		if clickable_state.down {
+			effective_style = (self.style_if_pressed)(effective_style);
+		}
+		if clickable_state.is_focused() {
+			effective_style = (self.style_if_focused)(effective_style);
+		}
 
-				if let Some(floating) = &effective_style.floating {
-					declaration
-						.floating()
-						.offset(floating.offset)
-						.dimensions(floating.dimensions)
-						.z_index(floating.z_index)
-						.parent_id(floating.parent_id)
-						.attach_points(floating.attach_points.element, floating.attach_points.parent)
-						.attach_to(floating.attach_to.clone())
-						.pointer_capture_mode(floating.pointer_capture_mode)
-						.end();
-				}
+		let mut node = Node::new()
+			.layout(Layout {
+				sizing: rlay::Sizing {
+					width: axis_size(effective_style.size.0),
+					height: axis_size(effective_style.size.1),
+				},
+				padding: Padding::new(
+					effective_style.padding.0 as f32,
+					effective_style.padding.1 as f32,
+					effective_style.padding.2 as f32,
+					effective_style.padding.3 as f32,
+				),
+				gap: effective_style.gap as f32,
+				direction: match effective_style.direction {
+					Direction::Row => rlay::Direction::Row,
+					Direction::Column => rlay::Direction::Column,
+				},
+				align_x: effective_style.justify,
+				align_y: effective_style.align,
+			})
+			.background(effective_style.background_color)
+			.radius(effective_style.border_radius.into())
+			.clip(
+				effective_style.scroll_x || effective_style.clip_x,
+				effective_style.scroll_y || effective_style.clip_y,
+			)
+			.scroll(effective_style.scroll_x, effective_style.scroll_y);
 
-				if let Some(sigma) = effective_style.backdrop_blur {
-					// Emit a custom element so the renderer can apply a CSS-like backdrop blur.
-					//
-					// IMPORTANT: Clay stores a raw pointer to the custom data. The data must outlive
-					// this frame's render command iteration, so we allocate it using the per-frame
-					// allocator and only pass Clay a reference to the allocated value.
-					let data_ref = ctx.frame_alloc.alloc(crate::CustomElementData {
-						backdrop_blur: Some(sigma),
-						..Default::default()
-					});
-					declaration.custom_element(data_ref);
-				}
+		node.border = rlay::Border {
+			color: effective_style.border.color,
+			width: Padding::new(
+				effective_style.border.width.left as f32,
+				effective_style.border.width.right as f32,
+				effective_style.border.width.top as f32,
+				effective_style.border.width.bottom as f32,
+			),
+			..node.border
+		};
 
-				let mut scroll_offset = c.scroll_offset();
-				if !effective_style.scroll_x {
-					scroll_offset.x = 0.;
-				}
-				if !effective_style.scroll_y {
-					scroll_offset.y = 0.;
-				}
-				declaration.clip(effective_style.scroll_x || effective_style.clip_x, effective_style.scroll_y || effective_style.clip_y, scroll_offset);
-				declaration
-			},
-			|c| {
-				let mut child_ctx = RenderContext {
-					c,
-					font_manager: &mut *ctx.font_manager,
-					input_manager: ctx.input_manager,
-					frame_alloc: ctx.frame_alloc,
-				};
-				for child in &self.children {
-					child.render(&mut child_ctx);
-				}
-			},
-		);
+		if let Some(id) = node_id {
+			node = node.id(id);
+		}
+		if let Some(floating) = &effective_style.floating {
+			node = node.floating(floating_options(floating));
+		}
+		if let Some(sigma) = effective_style.backdrop_blur {
+			let id = ctx.custom_elements.len() as u64;
+			ctx.custom_elements.push(crate::CustomElementData {
+				backdrop_blur: Some(sigma),
+				..Default::default()
+			});
+			node = node.custom_command(id);
+		}
+
+		ctx.frame.open(node);
+		for child in &self.children {
+			child.render(ctx);
+		}
+		ctx.frame.close().ok();
 	}
 	fn focus_nodes(&self) -> std::collections::HashSet<uuid::Uuid> {
 		let mut nodes = self.children.focus_nodes();
