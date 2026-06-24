@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 mod clickable;
+mod transition;
 use crate::focus_system::GLOBAL_FOCUS_MANAGER;
 use crate::render_context::RenderContext;
 use crate::{Component, element::Element};
@@ -11,6 +12,7 @@ use rlay::{
 	AlignX, AlignY, Anchor, AttachTo, AxisSize, Color, Floating, Layout, Node, Padding,
 	PointerCapture, Size, Vector,
 };
+pub use transition::*;
 pub type Justify = AlignX;
 pub type Align = AlignY;
 
@@ -133,6 +135,7 @@ pub struct ContainerStyle {
 	pub scroll_y: bool,
 	pub clip_x: bool,
 	pub clip_y: bool,
+	pub transition: Option<Transition>,
 
 	/// If set, enables Clay "floating" mode and forwards these options into the `Declaration`.
 	pub floating: Option<FloatingOptions>,
@@ -160,6 +163,7 @@ impl Default for ContainerStyle {
 			scroll_y: false,
 			clip_x: false,
 			clip_y: false,
+			transition: None,
 
 			floating: None,
 			backdrop_blur: None,
@@ -185,6 +189,12 @@ impl ContainerStyle {
 
 	pub fn background_color(mut self, color: impl Into<Color>) -> Self {
 		self.background_color = color.into();
+		self
+	}
+
+	/// Sets the transition applied to this style. The container needs a stable id.
+	pub fn transition(mut self, transition: Transition) -> Self {
+		self.transition = Some(transition);
 		self
 	}
 
@@ -465,6 +475,12 @@ impl Container {
 	}
 	pub fn background_color(mut self, color: impl Into<Color>) -> Self {
 		self.style.background_color = color.into();
+		self
+	}
+
+	/// Sets the transition applied to this container. The container needs a stable id.
+	pub fn transition(mut self, transition: Transition) -> Self {
+		self.style.transition = Some(transition);
 		self
 	}
 
@@ -839,6 +855,9 @@ impl Element for Container {
 
 		if let Some(id) = node_id {
 			node = node.id(id);
+		}
+		if let Some(transition) = effective_style.transition {
+			node = node.transition(transition.into_rlay());
 		}
 		if let Some(floating) = &effective_style.floating {
 			node = node.floating(floating_options(floating));

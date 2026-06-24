@@ -13,6 +13,7 @@ glutin-winit = { git = "https://github.com/coffeeispower/glutin", version = "0.5
 log = "0.4.27"
 ardos-ui-rsml-compiler = { path = "ardos-ui-rsml-compiler" }
 uuid = { version = "1.18.1", features = ["v4"] }
+bitflags = "2.12.1"
 
 [target.'cfg(all(unix, not(target_os = "android")))'.dependencies]
 smithay-clipboard = "0.7.3"

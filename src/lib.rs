@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc, time::Instant};
 
 mod clay_renderer;
 mod clipboard;
@@ -196,8 +196,13 @@ fn build_window<Props: Default + Clone + 'static>(
 				// `FramePool` lives for the lifetime of this callback and is reset every frame,
 				// matching the `tibs` pattern.
 				let mut frame_pool: FramePool<'static> = FramePool::new();
+				let mut previous_frame = None;
 
 				Box::new(move |canvas, window| {
+					let now = Instant::now();
+					let delta_time = previous_frame
+						.replace(now)
+						.map_or(0.0, |previous| (now - previous).as_secs_f32());
 					let clipboard = clipboard_for_window(&clipboard, window);
 
 					// Reset frame pool at the start of the frame so allocations from the previous
@@ -264,7 +269,7 @@ fn build_window<Props: Default + Clone + 'static>(
 						drop(render_ctx);
 						drop(previous_layout_ref);
 
-						let layout = frame.end().unwrap_or_default();
+						let layout = frame.end(delta_time).unwrap_or_default();
 						let ime_cursor_area = ime_anchor.and_then(|anchor| {
 							layout.element(&anchor).map(|element| {
 								let bb = element.bounds;

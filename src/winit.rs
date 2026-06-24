@@ -182,7 +182,6 @@ impl ApplicationHandler for WinitApp {
 				gl_surface
 					.swap_buffers(self.gl_context.as_ref().unwrap())
 					.unwrap();
-
 			}
 			WindowEvent::PointerMoved {
 				device_id: _,
@@ -221,7 +220,6 @@ impl ApplicationHandler for WinitApp {
 				let Some(SurfaceAndWindow { window, .. }) = self.window.as_mut() else {
 					return;
 				};
-				dbg!(&delta, &phase);
 				let (x, y) = match delta {
 					MouseScrollDelta::LineDelta(x, y) => (-x * 40.0, -y * 40.0),
 					MouseScrollDelta::PixelDelta(position) => {

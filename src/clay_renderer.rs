@@ -43,7 +43,12 @@ pub fn rlay_skia_render(
 				let mut paint = Paint::default();
 				paint.set_color4f(rlay_to_skia_color(style.color), None);
 				let font = Font::new(typeface, style.font_size);
-				let pos = Point::new(command.bounds.x, command.bounds.y + style.font_size);
+				let metrics = font.metrics().1;
+				let text_height = metrics.bottom - metrics.top;
+				let pos = Point::new(
+					command.bounds.x,
+					command.bounds.y + (command.bounds.height - text_height) / 2.0 - metrics.top,
+				);
 				canvas.draw_str(text, pos, &font, &paint);
 			}
 			CommandKind::Image(_) => {}
