@@ -1,4 +1,4 @@
-use crate::{CustomElementData, FrameAllocator, font_manager::FontManager};
+use crate::{CustomElementData, FrameAllocator, font_manager::FontManager, image::ImageManager};
 use rlay::{Frame, LayoutResult, PointerHit};
 
 pub struct InteractionState {
@@ -20,6 +20,7 @@ pub struct RenderContext<'clay: 'render, 'render: 'a, 'a> {
 	pub previous_layout: &'a LayoutResult,
 	pub interaction: &'a InteractionState,
 	pub font_manager: &'a mut FontManager,
+	pub(crate) image_manager: &'a mut ImageManager,
 	pub custom_elements: &'a mut Vec<CustomElementData>,
 
 	/// Per-frame allocator for custom payloads and other frame-scoped allocations.

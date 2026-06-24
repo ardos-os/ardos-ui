@@ -1,9 +1,11 @@
 use rlay::{
 	Border, Color as RlayColor, CommandKind, Padding, Radius, Rect as RlayRect, RenderCommand,
 };
-use skia_safe::{Canvas, ClipOp, Color4f, Font, Paint, Path, Point, RRect, Rect, Typeface};
+use skia_safe::{Canvas, ClipOp, Color4f, Font, Paint, Path, PathBuilder, Point, RRect, Rect, Typeface};
 
-pub fn rlay_to_skia_color(color: RlayColor) -> Color4f {
+use crate::image::{ImageManager, ResolvedImage};
+
+pub(crate) fn rlay_to_skia_color(color: RlayColor) -> Color4f {
 	Color4f::new(
 		color.r / 255.,
 		color.g / 255.,
@@ -12,11 +14,11 @@ pub fn rlay_to_skia_color(color: RlayColor) -> Color4f {
 	)
 }
 
-pub fn rlay_to_skia_rect(rect: RlayRect) -> Rect {
+pub(crate) fn rlay_to_skia_rect(rect: RlayRect) -> Rect {
 	Rect::from_xywh(rect.x, rect.y, rect.width, rect.height)
 }
 
-pub fn rlay_to_skia_rrect(rect: RlayRect, radius: Radius) -> RRect {
+pub(crate) fn rlay_to_skia_rrect(rect: RlayRect, radius: Radius) -> RRect {
 	RRect::new_rect_radii(
 		rlay_to_skia_rect(rect),
 		&[
@@ -28,11 +30,17 @@ pub fn rlay_to_skia_rrect(rect: RlayRect, radius: Radius) -> RRect {
 	)
 }
 
-pub fn rlay_skia_render(
+fn text_baseline(bounds_y: f32, bounds_height: f32, metrics_top: f32, metrics_bottom: f32) -> f32 {
+	let glyph_height = metrics_bottom - metrics_top;
+	bounds_y + (bounds_height - glyph_height) / 2.0 - metrics_top
+}
+
+pub(crate) fn rlay_skia_render(
 	canvas: &Canvas,
 	render_commands: impl Iterator<Item = RenderCommand>,
 	mut render_custom_element: impl FnMut(&RenderCommand, u64, Radius, &Canvas),
 	fonts: &[Typeface],
+	image_manager: &ImageManager,
 ) {
 	for command in render_commands {
 		match &command.kind {
@@ -44,14 +52,50 @@ pub fn rlay_skia_render(
 				paint.set_color4f(rlay_to_skia_color(style.color), None);
 				let font = Font::new(typeface, style.font_size);
 				let metrics = font.metrics().1;
-				let text_height = metrics.bottom - metrics.top;
 				let pos = Point::new(
 					command.bounds.x,
-					command.bounds.y + (command.bounds.height - text_height) / 2.0 - metrics.top,
+					text_baseline(
+						command.bounds.y,
+						command.bounds.height,
+						metrics.top,
+						metrics.bottom,
+					),
 				);
 				canvas.draw_str(text, pos, &font, &paint);
 			}
-			CommandKind::Image(_) => {}
+			CommandKind::Image(image_data) => {
+				let Some(image) = image_manager.resolve_id(image_data.image_id.get()) else {
+					continue;
+				};
+				let bounds = rlay_to_skia_rect(command.bounds);
+
+				canvas.save();
+				if image_data.corner_radius == Radius::default() {
+					canvas.clip_rect(bounds, ClipOp::Intersect, true);
+				} else {
+					canvas.clip_rrect(
+						rlay_to_skia_rrect(command.bounds, image_data.corner_radius),
+						ClipOp::Intersect,
+						true,
+					);
+				}
+				match image {
+					ResolvedImage::Raster(image) => {
+						let mut paint = Paint::default();
+						paint.set_anti_alias(true);
+						canvas.draw_image_rect(image, None, bounds, &paint);
+					}
+					ResolvedImage::Svg(dom) => {
+						let intrinsic = dom.root().intrinsic_size();
+						let width = intrinsic.width.max(1.0);
+						let height = intrinsic.height.max(1.0);
+						canvas.translate((bounds.left, bounds.top));
+						canvas.scale((bounds.width() / width, bounds.height() / height));
+						dom.render(canvas);
+					}
+				}
+				canvas.restore();
+			}
 			CommandKind::ClipStart { .. } => {
 				canvas.save();
 				canvas.clip_rect(rlay_to_skia_rect(command.bounds), ClipOp::Intersect, true);
@@ -84,6 +128,20 @@ pub fn rlay_skia_render(
 	}
 }
 
+#[cfg(test)]
+mod tests {
+	use super::text_baseline;
+
+	#[test]
+	fn baseline_centers_font_metrics_inside_line_box() {
+		let baseline = text_baseline(10.0, 20.0, -12.0, 4.0);
+
+		assert!((baseline - 24.0).abs() <= f32::EPSILON);
+		assert!((baseline - 12.0 - 12.0).abs() <= f32::EPSILON);
+		assert!((baseline + 4.0 - 28.0).abs() <= f32::EPSILON);
+	}
+}
+
 fn draw_border(canvas: &Canvas, bounds: RlayRect, border: Border) {
 	fn draw_side_border_rrect(
 		canvas: &Canvas,
@@ -95,7 +153,7 @@ fn draw_border(canvas: &Canvas, bounds: RlayRect, border: Border) {
 		color: Color4f,
 		width: Padding,
 	) {
-		let mut path = Path::new();
+		let mut path = PathBuilder::new();
 		match side {
 			0 => {
 				path.move_to(center);
@@ -124,7 +182,7 @@ fn draw_border(canvas: &Canvas, bounds: RlayRect, border: Border) {
 			_ => {}
 		}
 		canvas.save();
-		canvas.clip_path(&path, ClipOp::Intersect, false);
+		canvas.clip_path(&path.detach(), ClipOp::Intersect, false);
 
 		let mut paint = Paint::default();
 		paint.set_color4f(color, None);

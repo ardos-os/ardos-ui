@@ -1,6 +1,7 @@
 pub mod boxed;
 pub mod component;
 pub mod container;
+pub mod image;
 pub mod input;
 pub mod option;
 pub mod text;

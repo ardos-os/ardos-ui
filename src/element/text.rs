@@ -1,10 +1,15 @@
+use std::path::PathBuf;
+
 use skia_safe::{FontStyle, font_style::Width};
 
-use crate::{Element, RenderContext};
+use crate::{Element, RenderContext, font_manager::FontFamily};
 pub use rlay::TextAlign as TextAlignment;
+
+
+
 pub struct Text {
 	pub text: String,
-	pub font_family: String,
+	pub font_family: FontFamily,
 	pub font_weight: i32,
 	pub italic: bool,
 	pub font_size: u16,
@@ -16,13 +21,18 @@ impl Text {
 	pub fn new(text: impl Into<String>) -> Self {
 		Self {
 			text: text.into(),
-			font_family: "sans".to_string(),
+			font_family: FontFamily::System("sans-serif".to_string()),
 			font_weight: 400,
 			font_size: 14,
 			color: (0, 0, 0, 255).into(),
 			italic: false,
 			alignment: TextAlignment::Left,
 		}
+	}
+
+	pub fn font_weight(mut self, font_weight: i32) -> Self {
+		self.font_weight = font_weight;
+		self
 	}
 	pub fn text_center(mut self) -> Self {
 		self.alignment = TextAlignment::Center;
@@ -52,7 +62,15 @@ impl Text {
 	}
 
 	pub fn font_family(mut self, family: impl Into<String>) -> Self {
-		self.font_family = family.into();
+		self.font_family = FontFamily::System(family.into());
+		self
+	}
+	pub fn font_path(mut self, family: impl Into<PathBuf>) -> Self {
+		self.font_family = FontFamily::Path(family.into());
+		self
+	}
+	pub fn font_bytes(mut self, family: &'static [u8]) -> Self {
+		self.font_family = FontFamily::StaticBytes(family);
 		self
 	}
 }
@@ -74,7 +92,7 @@ impl Element for Text {
 				font_size: self.font_size as f32,
 				color: self.color,
 				align: self.alignment,
-				font_id: ctx.font_manager.get(&self.font_family, skia_font_style),
+				font_id: ctx.font_manager.get(self.font_family.clone(), skia_font_style),
 				..Default::default()
 			},
 		);

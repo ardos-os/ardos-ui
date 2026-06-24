@@ -6,6 +6,7 @@ mod element;
 mod focus_system;
 mod font_manager;
 mod hooks;
+mod image;
 mod input;
 mod render_context;
 mod util;
@@ -15,8 +16,15 @@ mod winit;
 pub use ::winit::platform::android::activity::AndroidApp;
 pub use ardos_ui_rsml_compiler::rsml;
 pub use clipboard::{Clipboard, ClipboardHandle, use_clipboard};
-pub use element::{Element, ElementExt, component::Component, container::*, input::*, text::Text};
+pub use element::{
+	Element, ElementExt, component::Component, container::*, image::Image, input::*, text::Text,
+};
 pub use hooks::*;
+pub use image::{
+	AssetImage, FileImage, ImageError, ImageHandle, ImageKey, ImageProviderBuilder,
+	ImageProviderContext, ImageProviderInstance, ImageProviderPollContext, ImageProviderState,
+	MemoryImage, SvgImage,
+};
 pub(crate) use input::winit_impl::WinitInputManager;
 pub use input::{InputManager, NamedKey, NativeKey};
 use render_context::InteractionState;
@@ -170,6 +178,7 @@ fn build_window<Props: Default + Clone + 'static>(
 		(800.0, 600.0)
 	};
 	let mut font_manager = FontManager::new();
+	let mut image_manager = image::ImageManager::default();
 	let measure_fonts = font_manager.measure_handle();
 	let rlay = Rc::new(RefCell::new(Engine::new(move |text, style| {
 		font_manager::measure_text(&measure_fonts, text, style)
@@ -259,6 +268,7 @@ fn build_window<Props: Default + Clone + 'static>(
 							previous_layout: &previous_layout_ref,
 							interaction: &interaction,
 							font_manager: &mut font_manager,
+							image_manager: &mut image_manager,
 							custom_elements: &mut custom_elements,
 							frame_alloc: &frame_alloc,
 						};
@@ -331,6 +341,7 @@ fn build_window<Props: Default + Clone + 'static>(
 							}
 						},
 						&fonts,
+						&image_manager,
 					);
 
 					input_manager.borrow_mut().update();

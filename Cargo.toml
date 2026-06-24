@@ -5,7 +5,11 @@ edition = "2024"
 [workspace]
 members = ["ardos-ui-rsml-compiler"]
 [dependencies]
-skia-safe = { version = "0.86.0", features = ["gl"] }
+skia-safe = { version = "0", features = [
+    "gl", "svg", 
+    # Didn't want to add this but it's just to stop skia-bindings from trying to compile skia from source
+    "textlayout", "x11", "binary-cache"
+]}
 color-eyre = "0.6.3"
 winit = { git = "https://github.com/SergioRibera/winit/", branch = "layer_shell", version = "0.31.0-beta.2", features = ["android-native-activity"] }
 glutin = { git = "https://github.com/coffeeispower/glutin", version = "0.32.3" }
@@ -26,4 +30,6 @@ package = "rlay"
 git = "https://github.com/ardos-os/rlay"
 
 [dev-dependencies]
+compile-time-run = "0.2.12"
 env_logger = "0.11.8"
+lucide-icons = "1.21.0"

@@ -301,6 +301,7 @@ impl CodeGenerator {
 		// Map RSML tag names to Ardos UI types
 		let element_type: TokenStream2 = match tag_name {
 			"container" => quote! { ardos_ui::Container },
+			"image" => quote! { ardos_ui::Image },
 			"text" => quote! { ardos_ui::Text },
 			_ => {
 				let ident = Ident::new(tag_name, tag_span);
