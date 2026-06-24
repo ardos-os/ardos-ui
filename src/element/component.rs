@@ -53,11 +53,14 @@ impl Component {
 		}
 	}
 	/// Creates a new function component with a key.
-	pub fn new_with_key<Props>(
+	pub fn new_with_key<Props: Default>(
 		func: impl FnOnce(Props) -> Box<dyn Element>,
-		props: Props,
-		key: String,
+		setup_props: impl FnOnce(&mut Props),
+		key: impl Into<String>,
 	) -> Self {
+		let key = key.into();
+		let mut props = Props::default();
+		setup_props(&mut props);
 		Self {
 			child: {
 				begin_component(format!(

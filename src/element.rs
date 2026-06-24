@@ -5,7 +5,7 @@ pub mod image;
 pub mod input;
 pub mod option;
 pub mod text;
-use std::collections::HashSet;
+use std::{collections::HashSet, rc::Rc};
 
 use uuid::Uuid;
 
@@ -42,7 +42,27 @@ pub trait Element {
 	}
 }
 
-impl Element for Vec<Box<dyn Element>> {
+impl<E: Element, const N: usize> Element for [E; N] {
+	fn render<'clay: 'render, 'render>(&'render self, ctx: &mut RenderContext<'clay, 'render, '_>) {
+		for child in self {
+			child.render(ctx);
+		}
+	}
+	fn focus_nodes(&self) -> HashSet<Uuid> {
+		self.iter().flat_map(|e| e.focus_nodes()).collect()
+	}
+}
+impl<E: Element> Element for [E] {
+	fn render<'clay: 'render, 'render>(&'render self, ctx: &mut RenderContext<'clay, 'render, '_>) {
+		for child in self {
+			child.render(ctx);
+		}
+	}
+	fn focus_nodes(&self) -> HashSet<Uuid> {
+		self.iter().flat_map(|e| e.focus_nodes()).collect()
+	}
+}
+impl<E: Element> Element for Vec<E> {
 	fn render<'clay: 'render, 'render>(&'render self, ctx: &mut RenderContext<'clay, 'render, '_>) {
 		for child in self {
 			child.render(ctx);
@@ -68,3 +88,13 @@ pub trait ElementExt: Sized + Element + 'static {
 }
 
 impl<T: Sized + Element + 'static> ElementExt for T {}
+
+
+impl<E: Element> Element for Rc<E> {
+	fn render<'clay: 'render, 'render>(&'render self, ctx: &mut RenderContext<'clay, 'render, '_>) {
+		self.as_ref().render(ctx);
+	}
+	fn focus_nodes(&self) -> HashSet<Uuid> {
+		self.as_ref().focus_nodes()
+	}
+}

@@ -1,3 +1,7 @@
+use std::collections::HashSet;
+
+use uuid::Uuid;
+
 use crate::Element;
 
 impl<T: Element> Element for Option<T> {
@@ -8,6 +12,13 @@ impl<T: Element> Element for Option<T> {
 		match self {
 			Some(e) => e.render(ctx),
 			None => {}
+		}
+	}
+	
+	fn focus_nodes(&self) -> HashSet<Uuid> {
+		match self {
+			Some(e) => e.focus_nodes(),
+			None => HashSet::new()
 		}
 	}
 }

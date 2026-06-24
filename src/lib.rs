@@ -23,7 +23,7 @@ pub use hooks::*;
 pub use image::{
 	AssetImage, FileImage, ImageError, ImageHandle, ImageKey, ImageProviderBuilder,
 	ImageProviderContext, ImageProviderInstance, ImageProviderPollContext, ImageProviderState,
-	MemoryImage, SvgImage,
+	MemoryImage, SvgImage, NetworkImage
 };
 pub(crate) use input::winit_impl::WinitInputManager;
 pub use input::{InputManager, NamedKey, NativeKey};

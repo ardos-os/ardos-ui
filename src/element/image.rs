@@ -1,12 +1,9 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use rlay::{AxisSize, Color, Layout, Node, Radius, Sizing};
 
 use crate::{
-	Element, ImageHandle, ImageKey, ImageProviderBuilder, ImageProviderInstance, ImageProviderState,
-	RenderContext,
-	image::{DynImageProviderBuilder, ImageProvider},
-	use_ref,
+	Element, ImageHandle, ImageKey, ImageProviderBuilder, ImageProviderInstance, ImageProviderState, NetworkImage, RenderContext, image::{DynImageProviderBuilder, ImageProvider}, use_ref,
 };
 
 struct ImageElementState {
@@ -60,7 +57,9 @@ impl Image {
 		self.provider = Some(Box::new(ImageProvider(provider)));
 		self
 	}
-
+	pub fn url(self, url: impl Into<Arc<str>>) -> Self {
+		self.source(NetworkImage::new(url))
+	}
 	pub fn id(mut self, id: impl Into<String>) -> Self {
 		self.id = Some(id.into());
 		self

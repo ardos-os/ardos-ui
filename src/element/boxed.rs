@@ -7,4 +7,7 @@ impl<T: Element> Element for Box<T> {
 	) {
 		self.as_ref().render(ctx);
 	}
+	fn focus_nodes(&self) -> std::collections::HashSet<uuid::Uuid> {
+		self.as_ref().focus_nodes()
+	}
 }

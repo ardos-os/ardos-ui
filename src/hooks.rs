@@ -82,7 +82,7 @@ impl<T> Deref for StateSetter<T> {
 
 pub type State<T> = (T, StateSetter<T>);
 
-pub type Entity<T> = (Rc<RefCell<T>>, Box<dyn Fn(&dyn Fn(&mut T))>);
+pub type Entity<T> = (Rc<RefCell<T>>, Rc<dyn Fn(&dyn Fn(&mut T))>);
 
 #[derive(Clone)]
 pub struct InputHandle;
@@ -183,7 +183,7 @@ pub fn use_entity<T: 'static>(initial: impl FnOnce() -> T) -> Entity<T> {
 		updater(&mut entity);
 		crate::REQUEST_REDRAW.call();
 	};
-	(value, Box::new(setter))
+	(value, Rc::new(setter))
 }
 
 /// Runs side effects when the `deps` hash changes

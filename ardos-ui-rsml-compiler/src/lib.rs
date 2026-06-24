@@ -483,14 +483,18 @@ impl CodeGenerator {
 
 		// Build `props` assignments as tokens
 		let mut props_stmts: Vec<TokenStream2> = Vec::new();
-
+		let mut key = Option::<syn::Expr>::None;
 		for attr in &element.attributes {
 			let field_ident = Ident::new(&attr.name.value, attr.name.span);
 
 			let stmt = match &attr.value {
 				Some(AttributeValue::String(s)) => {
 					let lit = syn::LitStr::new(&s.value, s.span);
-					quote! { props.#field_ident = (#lit).into(); }
+					if field_ident.to_string() == "key" {
+						key = Some(syn::parse2(quote!(#lit)).unwrap());
+						quote!()
+					}else {
+					quote! { props.#field_ident = (#lit).into(); }}
 				}
 				Some(AttributeValue::Expression(e)) => {
 					// Parse from token stream to preserve spans; support tuple fallback.
@@ -510,7 +514,12 @@ impl CodeGenerator {
 								),
 							)
 						})?;
-					quote! { props.#field_ident = (#expr).into(); }
+					if field_ident.to_string() == "key" {
+						key = Some(expr);
+						quote!()
+					} else {
+						quote! { props.#field_ident = (#expr).into(); }
+					}
 				}
 				None => quote! { props.#field_ident = true.into(); },
 			};
@@ -536,13 +545,24 @@ impl CodeGenerator {
 		}
 
 		if props_stmts.is_empty() {
-			Ok(quote! { ardos_ui::Component::new(#component_ident, |_| {}) })
+			match key {
+				Some(key) => Ok(quote! { ardos_ui::Component::new_with_key(#component_ident, |_| {}, #key) }),
+				None => Ok(quote! { ardos_ui::Component::new(#component_ident, |_| {}) }),
+			}
 		} else {
-			Ok(quote! {
-				ardos_ui::Component::new(#component_ident, |props| {
-					#( #props_stmts )*
-				})
-			})
+
+			match key {
+				Some(key) => Ok(quote! {
+					ardos_ui::Component::new_with_key(#component_ident, |props| {
+						#( #props_stmts )*
+					}, #key)
+				}),
+				None => Ok(quote! {
+					ardos_ui::Component::new(#component_ident, |props| {
+						#( #props_stmts )*
+					})
+				}),
+			}
 		}
 	}
 }

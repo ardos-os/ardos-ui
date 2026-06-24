@@ -1,10 +1,5 @@
 use std::{
-	collections::{HashMap, hash_map::DefaultHasher},
-	fmt,
-	hash::{Hash, Hasher},
-	path::{Path, PathBuf},
-	sync::{Arc, mpsc},
-	thread,
+	collections::{HashMap, hash_map::DefaultHasher}, fmt, hash::{Hash, Hasher}, path::{Path, PathBuf}, sync::{Arc, OnceLock, mpsc}, thread, time::Duration,
 };
 
 use skia_safe::{Data, FontMgr, Image as SkiaImage, svg::Dom};
@@ -365,6 +360,95 @@ impl ImageProviderBuilder for SvgImage {
 	}
 }
 
+#[derive(Debug, Clone)]
+pub struct NetworkImage {
+	url: Arc<str>,
+	user_agent: Arc<str>,
+}
+
+impl NetworkImage {
+	pub fn new(url: impl Into<Arc<str>>) -> Self {
+		Self {
+			url: url.into(),
+			user_agent: Arc::from("Ardos UI"),
+		}
+	}
+
+
+	pub fn user_agent(mut self, user_agent: impl Into<Arc<str>>) -> Self {
+		self.user_agent = user_agent.into();
+		self
+	}
+}
+
+impl ImageProviderBuilder for NetworkImage {
+	type Instance = FileImageInstance;
+
+	fn key(&self) -> ImageKey {
+		ImageKey::new(format!("network:{}", self.url))
+	}
+
+	fn build(&self, ctx: &ImageProviderContext<'_>) -> Self::Instance {
+		let key = self.key();
+
+		if let Some(handle) = ctx.cached(&key) {
+			return FileImageInstance {
+				key,
+				load: ImageLoad::Ready(handle),
+			};
+		}
+
+		let url = Arc::clone(&self.url);
+		let user_agent = Arc::clone(&self.user_agent);
+		let (sender, receiver) = mpsc::channel();
+
+		thread::spawn(move || {
+			let result = load_network_image(&url, &user_agent);
+			let _ = sender.send(result);
+		});
+
+		FileImageInstance {
+			key,
+			load: ImageLoad::Pending(receiver),
+		}
+	}
+}
+
+fn network_agent() -> ureq::Agent {
+	static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+
+	AGENT
+		.get_or_init(|| {
+			ureq::Agent::config_builder()
+				.timeout_global(Some(Duration::from_secs(20)))
+				.build()
+				.into()
+		})
+		.clone()
+}
+
+fn load_network_image(
+	url: &str,
+	user_agent: &str,
+) -> Result<LoadedImage, ImageError> {
+	let mut response = network_agent()
+		.get(url)
+		.header("User-Agent", user_agent)
+		.call()
+		.map_err(|error| {
+			ImageError::new(format!("failed to download image {url}: {error}"))
+		})?;
+
+	let bytes = response
+		.body_mut()
+		.with_config()
+		.read_to_vec()
+		.map_err(|error| {
+			ImageError::new(format!("failed to read image response {url}: {error}"))
+		})?;
+
+	Ok(load_image(Arc::<[u8]>::from(bytes)))
+}
 enum LoadedImage {
 	Raster(SkiaImage),
 	Svg(Arc<[u8]>),
