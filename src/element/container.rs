@@ -621,8 +621,8 @@ impl Container {
 		Self::new().direction(Direction::Column)
 	}
 
-	pub fn weird_padding(mut self, top: u16, right: u16, bottom: u16, left: u16) -> Self {
-		self.style.padding = (left, right, top, bottom);
+	pub fn weird_padding(mut self, p: (u16, u16, u16, u16)) -> Self {
+		self.style.padding = p;
 		self
 	}
 

@@ -157,32 +157,31 @@ impl ApplicationHandler for WinitApp {
 				}
 				.into();
 			}
-			WindowEvent::CloseRequested => event_loop.exit(),
-			WindowEvent::RedrawRequested => {
-				let Some(SurfaceAndWindow {
-					skia_surface,
-					skia_context,
-					gl_surface,
-					window,
-				}) = self.window.as_mut()
-				else {
-					return;
-				};
-				window.request_redraw();
+				WindowEvent::CloseRequested => event_loop.exit(),
+				WindowEvent::RedrawRequested => {
+					let Some(SurfaceAndWindow {
+						skia_surface,
+						skia_context,
+						gl_surface,
+						window,
+					}) = self.window.as_mut()
+					else {
+						return;
+					};
 
-				skia_surface.canvas().clear(Color::TRANSPARENT);
-				let canvas = skia_surface.canvas();
-				let scale_factor = window.scale_factor() as f32;
-				canvas.save();
-				canvas.scale((scale_factor, scale_factor));
-				let ime_request = (self.callbacks.on_render_callback)(canvas, window.as_ref());
-				canvas.restore();
-				update_window_ime(&mut self.ime_enabled, window.as_ref(), ime_request);
-				skia_context.flush_and_submit();
-				gl_surface
-					.swap_buffers(self.gl_context.as_ref().unwrap())
-					.unwrap();
-			}
+					skia_surface.canvas().clear(Color::TRANSPARENT);
+					let canvas = skia_surface.canvas();
+					let scale_factor = window.scale_factor() as f32;
+					canvas.save();
+					canvas.scale((scale_factor, scale_factor));
+					let ime_request = (self.callbacks.on_render_callback)(canvas, window.as_ref());
+					canvas.restore();
+					update_window_ime(&mut self.ime_enabled, window.as_ref(), &ime_request);
+					skia_context.flush_and_submit();
+					gl_surface
+						.swap_buffers(self.gl_context.as_ref().unwrap())
+						.unwrap();
+				}
 			WindowEvent::PointerMoved {
 				device_id: _,
 				position,
@@ -292,7 +291,7 @@ pub(crate) struct ImeFrameRequest {
 	pub cursor_area: Option<(Position, Size)>,
 }
 
-fn update_window_ime(ime_enabled: &mut bool, window: &dyn Window, request: ImeFrameRequest) {
+fn update_window_ime(ime_enabled: &mut bool, window: &dyn Window, request: &ImeFrameRequest) {
 	if *ime_enabled == request.requested && request.cursor_area.is_none() {
 		return;
 	}

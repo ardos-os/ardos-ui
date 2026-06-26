@@ -17,7 +17,7 @@ pub use ::winit::platform::android::activity::AndroidApp;
 pub use ardos_ui_rsml_compiler::rsml;
 pub use clipboard::{Clipboard, ClipboardHandle, use_clipboard};
 pub use element::{
-	Element, ElementExt, component::Component, container::*, image::Image, input::*, text::Text,
+	Element, ElementExt, component::Component, container::*, image::Image, input::*, text::Text, text::TextOverflowMode, text::TextAlignment
 };
 pub use hooks::*;
 pub use image::{
@@ -289,6 +289,9 @@ fn build_window<Props: Default + Clone + 'static>(
 								)
 							})
 						});
+						if layout.needs_animation_frame {
+							REQUEST_REDRAW.call();
+						}
 
 						(
 							layout,

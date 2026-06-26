@@ -1,7 +1,11 @@
 use rlay::{
-	Border, Color as RlayColor, CommandKind, Padding, Radius, Rect as RlayRect, RenderCommand,
+    Border, Color as RlayColor, CommandKind, Padding, Radius, Rect as RlayRect, RenderCommand,
+    TextOverflowMode,
 };
-use skia_safe::{Canvas, ClipOp, Color4f, Font, Paint, Path, PathBuilder, Point, RRect, Rect, Typeface};
+use skia_safe::{
+	Canvas, ClipOp, Color4f, FilterMode, Font, MipmapMode, Paint, PathBuilder, Point, RRect, Rect,
+	SamplingOptions, Typeface,
+};
 
 use crate::image::{ImageManager, ResolvedImage};
 
@@ -35,6 +39,10 @@ fn text_baseline(bounds_y: f32, bounds_height: f32, metrics_top: f32, metrics_bo
 	bounds_y + (bounds_height - glyph_height) / 2.0 - metrics_top
 }
 
+fn image_sampling() -> SamplingOptions {
+	SamplingOptions::new(FilterMode::Linear, MipmapMode::Linear)
+}
+
 pub(crate) fn rlay_skia_render(
 	canvas: &Canvas,
 	render_commands: impl Iterator<Item = RenderCommand>,
@@ -44,14 +52,19 @@ pub(crate) fn rlay_skia_render(
 ) {
 	for command in render_commands {
 		match &command.kind {
-			CommandKind::Text { text, style } => {
-				let Some(typeface) = fonts.get(style.font_id as usize) else {
-					continue;
-				};
-				let mut paint = Paint::default();
-				paint.set_color4f(rlay_to_skia_color(style.color), None);
-				let font = Font::new(typeface, style.font_size);
-				let metrics = font.metrics().1;
+				CommandKind::Text { text, style } => {
+					let Some(typeface) = fonts.get(style.font_id as usize) else {
+						continue;
+					};
+					let clip_text = style.text_overflow == TextOverflowMode::Cut;
+					if clip_text {
+						canvas.save();
+						canvas.clip_rect(rlay_to_skia_rect(command.bounds), ClipOp::Intersect, true);
+					}
+					let mut paint = Paint::default();
+					paint.set_color4f(rlay_to_skia_color(style.color), None);
+					let font = Font::new(typeface, style.font_size);
+					let metrics = font.metrics().1;
 				let pos = Point::new(
 					command.bounds.x,
 					text_baseline(
@@ -59,10 +72,13 @@ pub(crate) fn rlay_skia_render(
 						command.bounds.height,
 						metrics.top,
 						metrics.bottom,
-					),
-				);
-				canvas.draw_str(text, pos, &font, &paint);
-			}
+						),
+					);
+					canvas.draw_str(text, pos, &font, &paint);
+					if clip_text {
+						canvas.restore();
+					}
+				}
 			CommandKind::Image(image_data) => {
 				let Some(image) = image_manager.resolve_id(image_data.image_id.get()) else {
 					continue;
@@ -83,7 +99,13 @@ pub(crate) fn rlay_skia_render(
 					ResolvedImage::Raster(image) => {
 						let mut paint = Paint::default();
 						paint.set_anti_alias(true);
-						canvas.draw_image_rect(image, None, bounds, &paint);
+						canvas.draw_image_rect_with_sampling_options(
+							image,
+							None,
+							bounds,
+							image_sampling(),
+							&paint,
+						);
 					}
 					ResolvedImage::Svg(dom) => {
 						let intrinsic = dom.root().intrinsic_size();
@@ -130,7 +152,9 @@ pub(crate) fn rlay_skia_render(
 
 #[cfg(test)]
 mod tests {
-	use super::text_baseline;
+	use skia_safe::{FilterMode, MipmapMode};
+
+	use super::{image_sampling, text_baseline};
 
 	#[test]
 	fn baseline_centers_font_metrics_inside_line_box() {
@@ -139,6 +163,14 @@ mod tests {
 		assert!((baseline - 24.0).abs() <= f32::EPSILON);
 		assert!((baseline - 12.0 - 12.0).abs() <= f32::EPSILON);
 		assert!((baseline + 4.0 - 28.0).abs() <= f32::EPSILON);
+	}
+
+	#[test]
+	fn images_use_linear_filtering_and_mipmaps() {
+		let sampling = image_sampling();
+
+		assert_eq!(sampling.filter, FilterMode::Linear);
+		assert_eq!(sampling.mipmap, MipmapMode::Linear);
 	}
 }
 

@@ -216,16 +216,20 @@ impl ImageProviderInstance for FileImageInstance {
 						ctx.request_redraw();
 						ImageProviderState::Error(error)
 					}
-				}
+				},
 				Ok(Err(error)) => {
 					self.load = ImageLoad::Error(error.clone());
 					ctx.request_redraw();
 					ImageProviderState::Error(error)
 				}
-				Err(mpsc::TryRecvError::Empty) => ImageProviderState::Loading,
+				Err(mpsc::TryRecvError::Empty) => {
+					ctx.request_redraw();
+					ImageProviderState::Loading
+				}
 				Err(mpsc::TryRecvError::Disconnected) => {
 					let error = ImageError::new("image loader stopped before returning a result");
 					self.load = ImageLoad::Error(error.clone());
+					ctx.request_redraw();
 					ImageProviderState::Error(error)
 				}
 			},
@@ -304,10 +308,14 @@ impl ImageProviderInstance for MemoryImageInstance {
 					ctx.request_redraw();
 					ImageProviderState::Error(error)
 				}
-				Err(mpsc::TryRecvError::Empty) => ImageProviderState::Loading,
+				Err(mpsc::TryRecvError::Empty) => {
+					ctx.request_redraw();
+					ImageProviderState::Loading
+				}
 				Err(mpsc::TryRecvError::Disconnected) => {
 					let error = ImageError::new("image decoder stopped before returning a result");
 					self.load = ImageLoad::Error(error.clone());
+					ctx.request_redraw();
 					ImageProviderState::Error(error)
 				}
 			},
@@ -405,6 +413,7 @@ impl ImageProviderBuilder for NetworkImage {
 		thread::spawn(move || {
 			let result = load_network_image(&url, &user_agent);
 			let _ = sender.send(result);
+			REQUEST_REDRAW.call();
 		});
 
 		FileImageInstance {
@@ -497,7 +506,10 @@ impl ImageManager {
 			return Ok(handle);
 		}
 		let image = match image {
-			LoadedImage::Raster(image) => ResolvedImage::Raster(image),
+			LoadedImage::Raster(image) => {
+				let image = image.with_default_mipmaps().unwrap_or(image);
+				ResolvedImage::Raster(image)
+			}
 			LoadedImage::Svg(bytes) => ResolvedImage::Svg(
 				Dom::from_bytes(&bytes, FontMgr::default())
 					.map_err(|_| ImageError::new("unsupported or invalid SVG image"))?,
