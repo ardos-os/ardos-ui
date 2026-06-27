@@ -5,14 +5,14 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Deref;
 use std::rc::Rc;
 
-use crate::{GlobalClosure, InputManager, WinitInputManager};
+use crate::{GlobalClosure, InputManager};
 
 thread_local! {
 	pub(crate) static HOOK_PATH: RefCell<Vec<(usize, String)>> = RefCell::new(Vec::new());
 	pub(crate) static HOOK_INDEX: RefCell<usize> = RefCell::new(0);
 	pub(crate) static HOOK_STATES: RefCell<HashMap<HookKey, Box<dyn Any>>> = RefCell::new(HashMap::new());
 	pub(crate) static HOOK_VISITED_STATES: RefCell<HashSet<HookKey>> = RefCell::new(HashSet::new());
-	pub(crate) static CURRENT_INPUT_MANAGER: RefCell<Option<Rc<RefCell<WinitInputManager>>>> = RefCell::new(None);
+	pub(crate) static CURRENT_INPUT_MANAGER: RefCell<Option<Rc<RefCell<dyn InputManager>>>> = RefCell::new(None);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -106,7 +106,7 @@ pub fn use_input() -> InputHandle {
 }
 
 pub(crate) struct InputManagerScope {
-	previous: Option<Rc<RefCell<WinitInputManager>>>,
+	previous: Option<Rc<RefCell<dyn InputManager>>>,
 }
 
 impl Drop for InputManagerScope {
@@ -118,7 +118,7 @@ impl Drop for InputManagerScope {
 }
 
 pub(crate) fn push_input_manager(
-	input_manager: Rc<RefCell<WinitInputManager>>,
+	input_manager: Rc<RefCell<dyn InputManager>>,
 ) -> InputManagerScope {
 	CURRENT_INPUT_MANAGER.with(|current| {
 		let previous = current.replace(Some(input_manager));

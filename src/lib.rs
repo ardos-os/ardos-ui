@@ -1,6 +1,9 @@
-use std::{cell::RefCell, rc::Rc, time::Instant};
+use std::cell::RefCell;
+#[cfg(feature = "winit")]
+use std::{rc::Rc, time::Instant};
 
 mod clay_renderer;
+#[cfg(feature = "clipboard")]
 mod clipboard;
 mod element;
 mod focus_system;
@@ -9,42 +12,61 @@ mod hooks;
 mod image;
 mod input;
 mod render_context;
+#[cfg(feature = "shift")]
+mod shift;
 mod util;
+#[cfg(feature = "winit")]
 mod window_options;
+#[cfg(feature = "winit")]
 mod winit;
 #[cfg(target_os = "android")]
+#[cfg(feature = "winit")]
 pub use ::winit::platform::android::activity::AndroidApp;
 pub use ardos_ui_rsml_compiler::rsml;
+#[cfg(feature = "clipboard")]
 pub use clipboard::{Clipboard, ClipboardHandle, use_clipboard};
 pub use element::{
-	Element, ElementExt, component::Component, container::*, image::Image, input::*, text::Text, text::TextOverflowMode, text::TextAlignment
+	Element, ElementExt, component::Component, container::*, image::Image, input::*, text::Text,
+	text::TextAlignment, text::TextOverflowMode,
 };
 pub use hooks::*;
 pub use image::{
 	AssetImage, FileImage, ImageError, ImageHandle, ImageKey, ImageProviderBuilder,
 	ImageProviderContext, ImageProviderInstance, ImageProviderPollContext, ImageProviderState,
-	MemoryImage, SvgImage, NetworkImage
+	MemoryImage, NetworkImage, SvgImage,
 };
+pub use input::InputManager;
+pub use input::keyboard::*;
+#[cfg(feature = "shift")]
+pub(crate) use input::shift_impl::ShiftInputManager;
+#[cfg(feature = "winit")]
 pub(crate) use input::winit_impl::WinitInputManager;
-pub use input::{InputManager, NamedKey, NativeKey};
-use render_context::InteractionState;
 pub use render_context::RenderContext;
+#[cfg(feature = "shift")]
+pub use shift::{ShiftEventContext, ShiftRootProps, create_window_shift};
 pub use util::frame_pool::{FrameAllocator, FramePool};
+#[cfg(feature = "winit")]
 pub use window_options::WindowOptions;
 
 #[cfg(all(unix, not(target_os = "android")))]
+#[cfg(feature = "clipboard")]
 use crate::clipboard::WaylandClipboard;
+#[cfg(feature = "winit")]
 use crate::{
 	clay_renderer::{rlay_skia_render, rlay_to_skia_rrect},
 	focus_system::GLOBAL_FOCUS_MANAGER,
 	font_manager::FontManager,
-	input::Key,
-	winit::{Callbacks, ImeFrameRequest, WinitApp},
+	render_context::InteractionState,
 };
+#[cfg(feature = "winit")]
 use ::winit::event::{ButtonSource, MouseButton, PointerSource, TouchPhase};
+#[cfg(feature = "winit")]
 #[cfg(all(unix, not(target_os = "android")))]
 use ::winit::raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
+#[cfg(feature = "winit")]
 use rlay::{Engine, LayoutResult, Point, Size};
+#[cfg(feature = "winit")]
+use winit::{Callbacks, ImeFrameRequest, WinitApp};
 
 /// Internal helpers used by the `rsml!` macro expansion.
 ///
@@ -78,11 +100,12 @@ pub struct CustomElementData {
 	pub backdrop_blur: Option<f32>,
 }
 
+#[cfg(feature = "winit")]
 pub mod layer_shell {
 	pub use crate::window_options::{Anchor, KeyboardInteractivity, LayerShellOptions};
 }
 thread_local! {
-		static REQUEST_REDRAW: RefCell<Box<dyn Fn()>> = RefCell::new(Box::new(|| {}));
+	static REQUEST_REDRAW: RefCell<Box<dyn Fn()>> = RefCell::new(Box::new(|| {}));
 }
 
 pub(crate) trait GlobalClosure {
@@ -150,23 +173,26 @@ impl GlobalClosure for std::thread::LocalKey<RefCell<Box<dyn Fn()>>> {
 /// - [`Component`]
 /// - [`WindowOptions`]
 /// - [`Element`]
-pub fn create_window<Props: Default + Clone + 'static>(
+#[cfg(feature = "winit")]
+#[cfg(not(target_os = "android"))]
+pub fn create_window_winit<Props: Default + Clone + 'static>(
 	component: impl Clone + Copy + Fn(Props) -> Box<dyn Element> + 'static,
 	options: WindowOptions,
 ) {
-	build_window(component, options).run();
+	build_window_winit(component, options).run();
 }
 
+#[cfg(feature = "winit")]
 #[cfg(target_os = "android")]
-pub fn create_window_android<Props: Default + Clone + 'static>(
+pub fn create_window_winit_android<Props: Default + Clone + 'static>(
 	component: impl Clone + Copy + Fn(Props) -> Box<dyn Element> + 'static,
 	app: ::winit::platform::android::activity::AndroidApp,
 	options: WindowOptions,
 ) {
-	build_window(component, options).run_android(app);
+	build_window_winit(component, options).run_android(app);
 }
-
-fn build_window<Props: Default + Clone + 'static>(
+#[cfg(feature = "winit")]
+fn build_window_winit<Props: Default + Clone + 'static>(
 	component: impl Clone + Copy + Fn(Props) -> Box<dyn Element> + 'static,
 	options: WindowOptions,
 ) -> WinitApp {
@@ -189,6 +215,7 @@ fn build_window<Props: Default + Clone + 'static>(
 	)));
 	let previous_layout = Rc::new(RefCell::new(LayoutResult::default()));
 	let input_manager = Rc::new(RefCell::new(WinitInputManager::new()));
+	#[cfg(feature = "clipboard")]
 	let clipboard: Rc<RefCell<Option<ClipboardHandle>>> = Rc::new(RefCell::new(None));
 	let props = Props::default();
 
@@ -200,6 +227,7 @@ fn build_window<Props: Default + Clone + 'static>(
 				let layout_size = Rc::clone(&layout_size);
 				let previous_layout = Rc::clone(&previous_layout);
 				let input_manager = Rc::clone(&input_manager);
+				#[cfg(feature = "clipboard")]
 				let clipboard = Rc::clone(&clipboard);
 
 				// `FramePool` lives for the lifetime of this callback and is reset every frame,
@@ -212,6 +240,7 @@ fn build_window<Props: Default + Clone + 'static>(
 					let delta_time = previous_frame
 						.replace(now)
 						.map_or(0.0, |previous| (now - previous).as_secs_f32());
+					#[cfg(feature = "clipboard")]
 					let clipboard = clipboard_for_window(&clipboard, window);
 
 					// Reset frame pool at the start of the frame so allocations from the previous
@@ -242,7 +271,8 @@ fn build_window<Props: Default + Clone + 'static>(
 						});
 					}
 					input_manager.borrow().reset_ime_request();
-					let _input_scope = hooks::push_input_manager(Rc::clone(&input_manager));
+					let _input_scope = hooks::push_input_manager(Rc::clone(&input_manager) as _);
+					#[cfg(feature = "clipboard")]
 					let _clipboard_scope = clipboard.map(clipboard::push_clipboard);
 					let root_component = Component::new_with_props(component, props.clone());
 
@@ -473,6 +503,7 @@ fn build_window<Props: Default + Clone + 'static>(
 }
 
 #[cfg(all(unix, not(target_os = "android")))]
+#[cfg(all(feature = "clipboard", feature = "winit"))]
 fn clipboard_for_window(
 	clipboard: &Rc<RefCell<Option<ClipboardHandle>>>,
 	window: &dyn ::winit::window::Window,
@@ -494,6 +525,8 @@ fn clipboard_for_window(
 }
 
 #[cfg(not(all(unix, not(target_os = "android"))))]
+#[cfg(feature = "winit")]
+#[cfg(feature = "clipboard")]
 fn clipboard_for_window(
 	_clipboard: &Rc<RefCell<Option<ClipboardHandle>>>,
 	_window: &dyn ::winit::window::Window,

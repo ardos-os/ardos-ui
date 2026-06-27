@@ -1,6 +1,6 @@
 use rlay::{
-    Border, Color as RlayColor, CommandKind, Padding, Radius, Rect as RlayRect, RenderCommand,
-    TextOverflowMode,
+	Border, Color as RlayColor, CommandKind, Padding, Radius, Rect as RlayRect, RenderCommand,
+	TextOverflowMode,
 };
 use skia_safe::{
 	Canvas, ClipOp, Color4f, FilterMode, Font, MipmapMode, Paint, PathBuilder, Point, RRect, Rect,
@@ -52,19 +52,19 @@ pub(crate) fn rlay_skia_render(
 ) {
 	for command in render_commands {
 		match &command.kind {
-				CommandKind::Text { text, style } => {
-					let Some(typeface) = fonts.get(style.font_id as usize) else {
-						continue;
-					};
-					let clip_text = style.text_overflow == TextOverflowMode::Cut;
-					if clip_text {
-						canvas.save();
-						canvas.clip_rect(rlay_to_skia_rect(command.bounds), ClipOp::Intersect, true);
-					}
-					let mut paint = Paint::default();
-					paint.set_color4f(rlay_to_skia_color(style.color), None);
-					let font = Font::new(typeface, style.font_size);
-					let metrics = font.metrics().1;
+			CommandKind::Text { text, style } => {
+				let Some(typeface) = fonts.get(style.font_id as usize) else {
+					continue;
+				};
+				let clip_text = style.text_overflow == TextOverflowMode::Cut;
+				if clip_text {
+					canvas.save();
+					canvas.clip_rect(rlay_to_skia_rect(command.bounds), ClipOp::Intersect, true);
+				}
+				let mut paint = Paint::default();
+				paint.set_color4f(rlay_to_skia_color(style.color), None);
+				let font = Font::new(typeface, style.font_size);
+				let metrics = font.metrics().1;
 				let pos = Point::new(
 					command.bounds.x,
 					text_baseline(
@@ -72,13 +72,13 @@ pub(crate) fn rlay_skia_render(
 						command.bounds.height,
 						metrics.top,
 						metrics.bottom,
-						),
-					);
-					canvas.draw_str(text, pos, &font, &paint);
-					if clip_text {
-						canvas.restore();
-					}
+					),
+				);
+				canvas.draw_str(text, pos, &font, &paint);
+				if clip_text {
+					canvas.restore();
 				}
+			}
 			CommandKind::Image(image_data) => {
 				let Some(image) = image_manager.resolve_id(image_data.image_id.get()) else {
 					continue;

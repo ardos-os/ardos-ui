@@ -63,7 +63,7 @@ fn app(_: ()) -> Box<dyn Element> {
 
 fn main() {
 	env_logger::init();
-	ardos_ui::create_window(
+	ardos_ui::create_window_winit(
 		app,
 		WindowOptions {
 			title: "Touch Scroll Buttons".into(),

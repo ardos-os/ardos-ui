@@ -230,7 +230,7 @@ fn App(_: ()) -> Box<dyn Element> {
 fn main() {
 	env_logger::init();
 
-	ardos_ui::create_window(
+	ardos_ui::create_window_winit(
 		App,
 		WindowOptions {
 			title: "Ardos UI — Reorder Transition".into(),

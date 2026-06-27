@@ -153,7 +153,7 @@ fn Root(_: ()) -> Box<dyn Element> {
 }
 
 fn main() {
-	ardos_ui::create_window(
+	ardos_ui::create_window_winit(
 		Root,
 		WindowOptions {
 			title: "Backdrop Blur + Floating Example".into(),

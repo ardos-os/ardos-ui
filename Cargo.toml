@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 [workspace]
 members = ["ardos-ui-rsml-compiler"]
+exclude = ["shift", "examples/shift_login_example"]
 [dependencies]
 skia-safe = { version = "0", features = [
     "gl", "svg", 
@@ -11,20 +12,24 @@ skia-safe = { version = "0", features = [
     "textlayout", "x11", "binary-cache"
 ]}
 color-eyre = "0.6.3"
-winit = { git = "https://github.com/SergioRibera/winit/", branch = "layer_shell", version = "0.31.0-beta.2", features = ["android-native-activity"] }
-glutin = { git = "https://github.com/coffeeispower/glutin", version = "0.32.3" }
-glutin-winit = { git = "https://github.com/coffeeispower/glutin", version = "0.5.0" }
+winit = { git = "https://github.com/SergioRibera/winit/", branch = "layer_shell", version = "0.31.0-beta.2", features = ["android-native-activity"] , optional = true }
+glutin = { git = "https://github.com/coffeeispower/glutin", version = "0.32.3", optional = true }
+glutin-winit = { git = "https://github.com/coffeeispower/glutin", version = "0.5.0", optional = true }
 log = "0.4.27"
 ardos-ui-rsml-compiler = { path = "ardos-ui-rsml-compiler" }
 uuid = { version = "1.18.1", features = ["v4"] }
 bitflags = "2.12.1"
 ureq = "3.3.0"
+smol_str = "0.3.6"
+tab-app-framework = { git = "https://github.com/ardos-os/shift", version = "0.1.0-alpha", optional = true }
+anyhow = { version = "1", optional = true }
 
-[target.'cfg(all(unix, not(target_os = "android")))'.dependencies]
-smithay-clipboard = "0.7.3"
-
-[target.'cfg(target_os = "android")'.dependencies]
-android_clipboard = "0.1.0"
+[target.'cfg(all(unix, not(target_os = "android")))'.dependencies.smithay-clipboard]
+version = "0.7.3"
+optional = true
+[target.'cfg(all(target_os = "android"))'.dependencies.android_clipboard]
+version = "0.1.0"
+optional = true
 
 [dependencies.rlay]
 package = "rlay"
@@ -34,3 +39,9 @@ git = "https://github.com/ardos-os/rlay"
 compile-time-run = "0.2.12"
 env_logger = "0.11.8"
 lucide-icons = "1.21.0"
+
+[features]
+default = ["winit", "clipboard"]
+winit = ["dep:winit", "dep:glutin", "dep:glutin-winit"]
+clipboard = ["dep:smithay-clipboard", "dep:android_clipboard"]
+shift = ["dep:tab-app-framework", "dep:anyhow"]

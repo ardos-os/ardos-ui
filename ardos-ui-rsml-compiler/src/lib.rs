@@ -493,8 +493,9 @@ impl CodeGenerator {
 					if field_ident.to_string() == "key" {
 						key = Some(syn::parse2(quote!(#lit)).unwrap());
 						quote!()
-					}else {
-					quote! { props.#field_ident = (#lit).into(); }}
+					} else {
+						quote! { props.#field_ident = (#lit).into(); }
+					}
 				}
 				Some(AttributeValue::Expression(e)) => {
 					// Parse from token stream to preserve spans; support tuple fallback.
@@ -546,11 +547,12 @@ impl CodeGenerator {
 
 		if props_stmts.is_empty() {
 			match key {
-				Some(key) => Ok(quote! { ardos_ui::Component::new_with_key(#component_ident, |_| {}, #key) }),
+				Some(key) => {
+					Ok(quote! { ardos_ui::Component::new_with_key(#component_ident, |_| {}, #key) })
+				}
 				None => Ok(quote! { ardos_ui::Component::new(#component_ident, |_| {}) }),
 			}
 		} else {
-
 			match key {
 				Some(key) => Ok(quote! {
 					ardos_ui::Component::new_with_key(#component_ident, |props| {

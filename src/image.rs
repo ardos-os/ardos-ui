@@ -1,5 +1,11 @@
 use std::{
-	collections::{HashMap, hash_map::DefaultHasher}, fmt, hash::{Hash, Hasher}, path::{Path, PathBuf}, sync::{Arc, OnceLock, mpsc}, thread, time::Duration,
+	collections::{HashMap, hash_map::DefaultHasher},
+	fmt,
+	hash::{Hash, Hasher},
+	path::{Path, PathBuf},
+	sync::{Arc, OnceLock, mpsc},
+	thread,
+	time::Duration,
 };
 
 use skia_safe::{Data, FontMgr, Image as SkiaImage, svg::Dom};
@@ -302,7 +308,7 @@ impl ImageProviderInstance for MemoryImageInstance {
 						ctx.request_redraw();
 						ImageProviderState::Error(error)
 					}
-				}
+				},
 				Ok(Err(error)) => {
 					self.load = ImageLoad::Error(error.clone());
 					ctx.request_redraw();
@@ -382,7 +388,6 @@ impl NetworkImage {
 		}
 	}
 
-
 	pub fn user_agent(mut self, user_agent: impl Into<Arc<str>>) -> Self {
 		self.user_agent = user_agent.into();
 		self
@@ -436,25 +441,18 @@ fn network_agent() -> ureq::Agent {
 		.clone()
 }
 
-fn load_network_image(
-	url: &str,
-	user_agent: &str,
-) -> Result<LoadedImage, ImageError> {
+fn load_network_image(url: &str, user_agent: &str) -> Result<LoadedImage, ImageError> {
 	let mut response = network_agent()
 		.get(url)
 		.header("User-Agent", user_agent)
 		.call()
-		.map_err(|error| {
-			ImageError::new(format!("failed to download image {url}: {error}"))
-		})?;
+		.map_err(|error| ImageError::new(format!("failed to download image {url}: {error}")))?;
 
 	let bytes = response
 		.body_mut()
 		.with_config()
 		.read_to_vec()
-		.map_err(|error| {
-			ImageError::new(format!("failed to read image response {url}: {error}"))
-		})?;
+		.map_err(|error| ImageError::new(format!("failed to read image response {url}: {error}")))?;
 
 	Ok(load_image(Arc::<[u8]>::from(bytes)))
 }
@@ -497,11 +495,7 @@ impl ImageManager {
 		self.by_key.get(key).copied()
 	}
 
-	fn store_loaded(
-		&mut self,
-		key: ImageKey,
-		image: LoadedImage,
-	) -> Result<ImageHandle, ImageError> {
+	fn store_loaded(&mut self, key: ImageKey, image: LoadedImage) -> Result<ImageHandle, ImageError> {
 		if let Some(handle) = self.cached(&key) {
 			return Ok(handle);
 		}
@@ -541,9 +535,7 @@ fn load_image(bytes: Arc<[u8]>) -> LoadedImage {
 }
 
 fn is_svg(bytes: &[u8]) -> bool {
-	let bytes = bytes
-		.strip_prefix(&[0xef, 0xbb, 0xbf])
-		.unwrap_or(bytes);
+	let bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes);
 	let Ok(text) = std::str::from_utf8(bytes) else {
 		return false;
 	};

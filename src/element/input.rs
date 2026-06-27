@@ -1,8 +1,9 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{
-	ClickableState, Element, Key, NamedKey, use_clipboard, use_entity, use_input, use_ref,
-};
+use crate::{ClickableState, Element, Key, NamedKey, use_entity, use_input, use_ref};
+
+#[cfg(feature = "clipboard")]
+use crate::use_clipboard;
 pub type InputRenderer = Rc<dyn Fn(InputRenderProps) -> Box<dyn Element>>;
 #[derive(Clone)]
 pub struct InputProps {
@@ -86,6 +87,7 @@ pub fn Input(props: InputProps) -> Box<dyn Element> {
 	let (state, set_state) = use_entity(|| InputState::collapsed(props.initial_value.clone()));
 	let clickable_ref = use_ref(ClickableState::default());
 	let input = use_input();
+	#[cfg(feature = "clipboard")]
 	let clipboard = use_clipboard();
 
 	let focused = clickable_ref.borrow().is_focused();
@@ -122,25 +124,38 @@ pub fn Input(props: InputProps) -> Box<dyn Element> {
 				next.selection_focus = chars_count(&next.value);
 				next.cursor = next.selection_focus;
 				state_changed = true;
-			} else if input.primary_modifier_pressed() && character_key_pressed(input, "c", props.repeat)
+			} else if cfg!(feature = "clipboard")
+				&& input.primary_modifier_pressed()
+				&& character_key_pressed(input, "c", props.repeat)
 			{
+				#[cfg(feature = "clipboard")]
 				if let Some(text) = selected_text(&next) {
 					clipboard.set_text(&text);
 				}
-			} else if input.primary_modifier_pressed() && character_key_pressed(input, "x", props.repeat)
+			} else if cfg!(feature = "clipboard")
+				&& input.primary_modifier_pressed()
+				&& character_key_pressed(input, "x", props.repeat)
 			{
+				#[cfg(feature = "clipboard")]
 				if let Some(text) = selected_text(&next) {
 					clipboard.set_text(&text);
 					delete_selection(&mut next);
 					state_changed = true;
 				}
-			} else if input.primary_modifier_pressed() && character_key_pressed(input, "v", props.repeat)
+			} else if cfg!(feature = "clipboard")
+				&& input.primary_modifier_pressed()
+				&& character_key_pressed(input, "v", props.repeat)
 			{
+				#[cfg(feature = "clipboard")]
 				if let Some(text) = clipboard.get_text() {
 					insert_text(&mut next, &text);
 					state_changed = true;
 				}
-			} else if key_pressed(input, Key::Named(NamedKey::Backspace), props.repeat) {
+			} else if key_pressed(
+				input,
+				Key::Named(NamedKey::Backspace),
+				props.repeat,
+			) {
 				if !delete_selection(&mut next) && next.cursor > 0 {
 					let byte_index = char_index_to_byte_index(&next.value, next.cursor - 1);
 					next.value.remove(byte_index);

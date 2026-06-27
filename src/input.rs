@@ -1,9 +1,10 @@
+use crate::input::keyboard::Key;
+
+pub mod keyboard;
+#[cfg(feature = "shift")]
+pub(crate) mod shift_impl;
+#[cfg(feature = "winit")]
 pub(crate) mod winit_impl;
-
-pub type Key = winit::keyboard::Key;
-pub type NativeKey = winit::keyboard::NativeKey;
-pub type NamedKey = winit::keyboard::NamedKey;
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Modifiers {
 	pub shift: bool,

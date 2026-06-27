@@ -1,51 +1,57 @@
 use rlay::{Size, TextStyle};
 use skia_safe::{FontMgr, FontStyle, Typeface};
-use std::{cell::RefCell, collections::HashMap, fs, hash::{Hash, Hasher}, path::PathBuf, rc::Rc};
+use std::{
+	cell::RefCell,
+	collections::HashMap,
+	fs,
+	hash::{Hash, Hasher},
+	path::PathBuf,
+	rc::Rc,
+};
 
 #[derive(Debug, Clone)]
 pub enum FontFamily {
-    System(String),
-    Path(PathBuf),
-    StaticBytes(&'static [u8]),
+	System(String),
+	Path(PathBuf),
+	StaticBytes(&'static [u8]),
 }
 
 impl PartialEq for FontFamily {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::System(a), Self::System(b)) => a == b,
-            (Self::Path(a), Self::Path(b)) => a == b,
-            (Self::StaticBytes(a), Self::StaticBytes(b)) => {
-                a.as_ptr() == b.as_ptr() && a.len() == b.len()
-            }
-            _ => false,
-        }
-    }
+	fn eq(&self, other: &Self) -> bool {
+		match (self, other) {
+			(Self::System(a), Self::System(b)) => a == b,
+			(Self::Path(a), Self::Path(b)) => a == b,
+			(Self::StaticBytes(a), Self::StaticBytes(b)) => {
+				a.as_ptr() == b.as_ptr() && a.len() == b.len()
+			}
+			_ => false,
+		}
+	}
 }
 
 impl Eq for FontFamily {}
 
-
 impl Hash for FontFamily {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            Self::System(family) => {
-                0u8.hash(state);
-                family.hash(state);
-            }
-            Self::Path(path) => {
-                1u8.hash(state);
-                path.hash(state);
-            }
+	fn hash<H: Hasher>(&self, state: &mut H) {
+		match self {
+			Self::System(family) => {
+				0u8.hash(state);
+				family.hash(state);
+			}
+			Self::Path(path) => {
+				1u8.hash(state);
+				path.hash(state);
+			}
 			// Optimization: instead of hashing the entire contents of the font, which would be a performance bottleneck
 			// We just hash the pointer, because we know it is static and it won't change through out the program
 			// So if we have the same pointer, it's always the same content
-            Self::StaticBytes(bytes) => {
-                2u8.hash(state);
-                bytes.as_ptr().hash(state);
-                bytes.len().hash(state);
-            }
-        }
-    }
+			Self::StaticBytes(bytes) => {
+				2u8.hash(state);
+				bytes.as_ptr().hash(state);
+				bytes.len().hash(state);
+			}
+		}
+	}
 }
 
 /// Cache key for font requests.
@@ -146,14 +152,14 @@ impl FontManager {
 						}
 					}
 				}
-			},
+			}
 			FontFamily::Path(path_buf) => {
 				if let Ok(bytes) = fs::read(path_buf) {
 					if let Some(typeface) = self.font_mgr.new_from_data(&bytes, None) {
 						return typeface;
 					}
 				}
-			},
+			}
 			FontFamily::StaticBytes(bytes) => {
 				if let Some(typeface) = self.font_mgr.new_from_data(&bytes, None) {
 					return typeface;

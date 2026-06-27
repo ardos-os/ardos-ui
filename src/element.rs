@@ -89,7 +89,6 @@ pub trait ElementExt: Sized + Element + 'static {
 
 impl<T: Sized + Element + 'static> ElementExt for T {}
 
-
 impl<E: Element> Element for Rc<E> {
 	fn render<'clay: 'render, 'render>(&'render self, ctx: &mut RenderContext<'clay, 'render, '_>) {
 		self.as_ref().render(ctx);

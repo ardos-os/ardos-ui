@@ -3,7 +3,10 @@ use std::{cell::RefCell, rc::Rc, sync::Arc};
 use rlay::{AxisSize, Color, Layout, Node, Radius, Sizing};
 
 use crate::{
-	Element, ImageHandle, ImageKey, ImageProviderBuilder, ImageProviderInstance, ImageProviderState, NetworkImage, RenderContext, image::{DynImageProviderBuilder, ImageProvider}, use_ref,
+	Element, ImageHandle, ImageKey, ImageProviderBuilder, ImageProviderInstance, ImageProviderState,
+	NetworkImage, RenderContext,
+	image::{DynImageProviderBuilder, ImageProvider},
+	use_ref,
 };
 
 struct ImageElementState {

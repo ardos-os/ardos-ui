@@ -14,11 +14,11 @@ impl<T: Element> Element for Option<T> {
 			None => {}
 		}
 	}
-	
+
 	fn focus_nodes(&self) -> HashSet<Uuid> {
 		match self {
 			Some(e) => e.focus_nodes(),
-			None => HashSet::new()
+			None => HashSet::new(),
 		}
 	}
 }

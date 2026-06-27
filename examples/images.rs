@@ -2,46 +2,40 @@
 
 use ardos_ui::{Direction, Element, MemoryImage, WindowOptions, rsml};
 
-const RED_PIXEL_PNG: &'static [u8] = compile_time_run::run_command!(
-    "convert",
-    "-size",
-    "64x64",
-    "xc:red",
-    "png:-"
-);
+const RED_PIXEL_PNG: &'static [u8] =
+	compile_time_run::run_command!("convert", "-size", "64x64", "xc:red", "png:-");
 
 use lucide_icons::Icon as LucideIcon;
 
-
 pub struct IconProps {
-    pub icon: LucideIcon,
-    pub size: u16,
-    pub color: (u8, u8, u8, u8),
+	pub icon: LucideIcon,
+	pub size: u16,
+	pub color: (u8, u8, u8, u8),
 }
 
 impl Default for IconProps {
-    fn default() -> Self {
-        Self {
-            icon: LucideIcon::Heart,
-            size: 24,
-            color: (0xff, 0xff, 0xff, 0xff),
-        }
-    }
+	fn default() -> Self {
+		Self {
+			icon: LucideIcon::Heart,
+			size: 24,
+			color: (0xff, 0xff, 0xff, 0xff),
+		}
+	}
 }
 
 pub fn Icon(props: IconProps) -> Box<dyn Element> {
-    let glyph = char::from(props.icon).to_string();
+	let glyph = char::from(props.icon).to_string();
 
-    rsml! {
-		<text
-			font_bytes={lucide_icons::LUCIDE_FONT_BYTES}
-			font_size={props.size}
-			color={props.color}
-			text_center
-		>
-			{glyph}
-		</text>
-    }
+	rsml! {
+	<text
+		font_bytes={lucide_icons::LUCIDE_FONT_BYTES}
+		font_size={props.size}
+		color={props.color}
+		text_center
+	>
+		{glyph}
+	</text>
+	}
 }
 fn App(_: ()) -> Box<dyn Element> {
 	rsml! {
@@ -72,7 +66,7 @@ fn App(_: ()) -> Box<dyn Element> {
 
 fn main() {
 	env_logger::init();
-	ardos_ui::create_window(
+	ardos_ui::create_window_winit(
 		App,
 		WindowOptions {
 			title: "Ardos UI — Images & Icons".into(),
