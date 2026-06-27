@@ -12,14 +12,15 @@ use skia_safe::{
 	gpu::{self, DirectContext, direct_contexts::make_gl, ganesh::gl::backend_render_targets},
 };
 use tab_app_framework::{
-	CharEvent, Config, GestureEvent, GlApplication, GlEventContext, GlInitContext, GlTabAppFramework,
-	KeyEvent, Monitor, MonitorRemovedEvent, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-	PointerMoveEvent, PointerType, RenderEvent, RenderMode, SessionEvent, TouchEvent,
+	AxisOrientation, AxisPhase, AxisSource, CharEvent, Config, GestureEvent, GlApplication,
+	GlEventContext, GlInitContext, GlTabAppFramework, KeyEvent, Monitor, MonitorRemovedEvent,
+	MouseDownEvent, MouseMoveEvent, MouseUpEvent, PointerAxisEvent, PointerMoveEvent, PointerType,
+	RenderEvent, RenderMode, SessionEvent, TouchEvent,
 };
 
 use crate::{
-	Component, Element, GlobalClosure, InputManager, Key, NamedKey, REQUEST_REDRAW, RenderContext,
-	ShiftInputManager,
+	Component, Element, GlobalClosure, InputManager, Key, NamedKey, PointerKind, REQUEST_REDRAW,
+	RenderContext, ShiftInputManager,
 	clay_renderer::{rlay_skia_render, rlay_to_skia_rrect},
 	focus_system::GLOBAL_FOCUS_MANAGER,
 	font_manager::{self, FontManager},
@@ -73,6 +74,7 @@ pub struct ShiftApp {
 	font_manager: FontManager,
 	image_manager: image::ImageManager,
 	monitor_states: HashMap<String, MonitorUiState>,
+	touch_contacts: HashMap<i32, (String, Point)>,
 	skia_surface_cache: SkiaSurfaceCache,
 	skia_context: DirectContext,
 	redraw_requested: Rc<Cell<bool>>,
@@ -126,6 +128,7 @@ impl GlApplication for ShiftApp {
 			font_manager,
 			image_manager: image::ImageManager::default(),
 			monitor_states: HashMap::new(),
+			touch_contacts: HashMap::new(),
 			skia_surface_cache: SkiaSurfaceCache::default(),
 			skia_context,
 			redraw_requested,
@@ -228,6 +231,43 @@ impl GlApplication for ShiftApp {
 		self.mouse_button(ctx, ev.position, ev.button, false);
 	}
 
+	fn on_pointer_axis(&mut self, ctx: &mut GlEventContext<'_, '_, Self>, ev: PointerAxisEvent) {
+		let Some((monitor_id, x, y)) = monitor_at(ctx, ev.position) else {
+			return;
+		};
+
+		let state = self.monitor_state(&monitor_id);
+		state
+			.input_manager
+			.borrow_mut()
+			.set_mouse_position(x as f32, y as f32);
+		state
+			.input_manager
+			.borrow_mut()
+			.set_pointer_kind(PointerKind::Mouse);
+		state
+			.rlay
+			.input_mut()
+			.set_mouse_position(Point::new(x as f32, y as f32));
+
+		let delta = match ev.orientation {
+			AxisOrientation::Horizontal => rlay::Vector::new(ev.delta as f32, 0.0),
+			AxisOrientation::Vertical => rlay::Vector::new(0.0, ev.delta as f32),
+		};
+		let phase =
+			matches!(ev.source, AxisSource::Finger | AxisSource::Continuous).then(|| match ev.phase {
+				AxisPhase::Started => rlay::TouchPhase::Started,
+				AxisPhase::Moved => rlay::TouchPhase::Moved,
+				AxisPhase::Ended => rlay::TouchPhase::Ended,
+				AxisPhase::Cancelled => rlay::TouchPhase::Cancelled,
+			});
+		state
+			.rlay
+			.input_mut()
+			.add_scroll_delta_with_phase(rlay::PointerId::Mouse, delta, phase);
+		ctx.schedule_all_frames();
+	}
+
 	fn on_key(&mut self, ctx: &mut GlEventContext<'_, '_, Self>, ev: KeyEvent) {
 		for state in self.monitor_states.values_mut() {
 			state
@@ -248,23 +288,55 @@ impl GlApplication for ShiftApp {
 	fn on_touch(&mut self, ctx: &mut GlEventContext<'_, '_, Self>, ev: TouchEvent) {
 		match ev {
 			TouchEvent::Down { contact, .. } | TouchEvent::Motion { contact, .. } => {
-				if let Some((monitor_id, x, y)) = monitor_at(ctx, (contact.x, contact.y)) {
-					self.monitor_state(&monitor_id).rlay.input_mut().set_touch(
-						contact.id as u64,
-						Point::new(x as f32, y as f32),
-						true,
-					);
+				if contact.id < 0 {
+					ctx.schedule_all_frames();
+					return;
 				}
-			}
-			TouchEvent::Up { contact_id, .. } => {
-				for state in self.monitor_states.values_mut() {
+				if let Some((monitor_id, x, y)) =
+					transformed_touch_position(ctx, contact.x_transformed, contact.y_transformed)
+				{
+					let point = Point::new(x as f32, y as f32);
+					let state = self.monitor_state(&monitor_id);
+					state
+						.input_manager
+						.borrow_mut()
+						.set_touch_point(contact.id as u64, point.x, point.y);
 					state
 						.rlay
 						.input_mut()
-						.set_touch(contact_id as u64, Point::new(0.0, 0.0), false);
+						.set_touch(contact.id as u64, point, true);
+					self.touch_contacts.insert(contact.id, (monitor_id, point));
 				}
 			}
-			TouchEvent::Cancel { .. } | TouchEvent::Frame { .. } => {}
+			TouchEvent::Up { contact_id, .. } => {
+				if contact_id < 0 {
+					ctx.schedule_all_frames();
+					return;
+				}
+				if let Some((monitor_id, point)) = self.touch_contacts.remove(&contact_id) {
+					let state = self.monitor_state(&monitor_id);
+					state
+						.input_manager
+						.borrow_mut()
+						.remove_touch_point(contact_id as u64);
+					state
+						.rlay
+						.input_mut()
+						.set_touch(contact_id as u64, point, false);
+				}
+			}
+			TouchEvent::Cancel { .. } => {
+				let contacts = self.touch_contacts.drain().collect::<Vec<_>>();
+				for (contact_id, (monitor_id, point)) in contacts {
+					let state = self.monitor_state(&monitor_id);
+					state.input_manager.borrow_mut().clear_touch_points();
+					state
+						.rlay
+						.input_mut()
+						.set_touch(contact_id as u64, point, false);
+				}
+			}
+			TouchEvent::Frame { .. } => {}
 		}
 		ctx.schedule_all_frames();
 	}
@@ -354,6 +426,10 @@ impl ShiftApp {
 				state
 					.input_manager
 					.borrow_mut()
+					.set_pointer_kind(shift_pointer_kind(pointer_type));
+				state
+					.input_manager
+					.borrow_mut()
 					.set_mouse_position(x as f32, y as f32);
 				state
 					.rlay
@@ -378,6 +454,10 @@ impl ShiftApp {
 		let ui_button = shift_mouse_button(button);
 		let state = self.monitor_state(&monitor_id);
 
+		state
+			.input_manager
+			.borrow_mut()
+			.set_pointer_kind(PointerKind::Mouse);
 		state
 			.input_manager
 			.borrow_mut()
@@ -590,6 +670,42 @@ fn monitor_at(
 		let local = monitor.cursor_relative_position(position);
 		Some((monitor.id.clone(), local.0, local.1))
 	})
+}
+
+fn transformed_touch_position(
+	ctx: &GlEventContext<'_, '_, ShiftApp>,
+	mut x: f64,
+	mut y: f64,
+) -> Option<(String, f64, f64)> {
+	if x > 1.0 || y > 1.0 {
+		x /= 65535.0;
+		y /= 65535.0;
+	}
+
+	let max_x = ctx
+		.monitors()
+		.map(|monitor| monitor.x.saturating_add(monitor.width))
+		.max()
+		.unwrap_or(0)
+		.max(1) as f64;
+	let max_y = ctx
+		.monitors()
+		.map(|monitor| monitor.y.saturating_add(monitor.height))
+		.max()
+		.unwrap_or(0)
+		.max(1) as f64;
+
+	let position = (x.clamp(0.0, 1.0) * max_x, y.clamp(0.0, 1.0) * max_y);
+	monitor_at(ctx, position)
+}
+
+fn shift_pointer_kind(pointer_type: PointerType) -> PointerKind {
+	match pointer_type {
+		PointerType::Mouse => PointerKind::Mouse,
+		PointerType::Pen => PointerKind::Pen,
+		PointerType::Touch => PointerKind::Touch,
+		PointerType::Unknown => PointerKind::Unknown,
+	}
 }
 
 fn shift_mouse_button(button: u32) -> rlay::MouseButton {

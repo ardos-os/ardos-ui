@@ -3,7 +3,8 @@
 use std::rc::Rc;
 
 use ardos_ui::{
-	Align, Direction, Element, ElementExt, FloatingAttachPointType, Input, InputRenderProps, InputRenderer, PointerCaptureMode, ShiftRootProps, rsml, use_input,
+	Align, Cursor, Direction, Element, ElementExt, Input, InputRenderProps, InputRenderer,
+	ShiftRootProps, rsml,
 };
 
 #[derive(Default)]
@@ -155,6 +156,119 @@ fn mask(value: &str) -> String {
 }
 
 #[derive(Default)]
+struct ScrollItemProps {
+	label: String,
+	accent: (u8, u8, u8, u8),
+}
+
+fn ScrollItem(props: ScrollItemProps) -> Box<dyn Element> {
+	rsml! {
+		<container
+			h_fixed={42.0}
+			w_expand
+			direction={Direction::Row}
+			align={Align::Center}
+			gap={10}
+			padding_all={10}
+			rounded={6.0}
+			background_color={(0x14, 0x20, 0x30, 0xff)}
+			border_width={1}
+			border_color={(0x72, 0x86, 0xa0, 0x35)}
+		>
+			<container
+				w_fixed={8.0}
+				h_fixed={24.0}
+				rounded={999.0}
+				background_color={props.accent}
+			/>
+			<text font_size={13} color={(0xd9, 0xe4, 0xf2, 0xff)}>
+				{props.label}
+			</text>
+		</container>
+	}
+}
+
+#[derive(Default)]
+struct ScrollPanelProps {
+	title: String,
+	prefix: String,
+	accent: (u8, u8, u8, u8),
+}
+
+fn ScrollPanel(props: ScrollPanelProps) -> Box<dyn Element> {
+	let labels = (1..=16)
+		.map(|index| format!("{} item {:02}", props.prefix, index))
+		.collect::<Vec<_>>();
+
+	rsml! {
+		<container
+			w_fixed={190.0}
+			h_fixed={360.0}
+			direction={Direction::Column}
+			gap={10}
+			padding_all={12}
+			rounded={8.0}
+			background_color={(0x0f, 0x16, 0x22, 0xe8)}
+			border_width={1}
+			border_color={(0xb6, 0xc4, 0xd6, 0x35)}
+		>
+			<text font_size={14} font_weight={700} color={(0xf5, 0xf8, 0xfc, 0xff)} text_center>
+				{props.title}
+			</text>
+
+			<container
+				id={format!("{}-scroll-panel", props.prefix)}
+				w_expand
+				h_expand
+				direction={Direction::Column}
+				gap={8}
+				scroll_y={true}
+				clip_y={true}
+			>
+				<ScrollItem label={labels[0].clone()} accent={props.accent} />
+				<ScrollItem label={labels[1].clone()} accent={props.accent} />
+				<ScrollItem label={labels[2].clone()} accent={props.accent} />
+				<ScrollItem label={labels[3].clone()} accent={props.accent} />
+				<ScrollItem label={labels[4].clone()} accent={props.accent} />
+				<ScrollItem label={labels[5].clone()} accent={props.accent} />
+				<ScrollItem label={labels[6].clone()} accent={props.accent} />
+				<ScrollItem label={labels[7].clone()} accent={props.accent} />
+				<ScrollItem label={labels[8].clone()} accent={props.accent} />
+				<ScrollItem label={labels[9].clone()} accent={props.accent} />
+				<ScrollItem label={labels[10].clone()} accent={props.accent} />
+				<ScrollItem label={labels[11].clone()} accent={props.accent} />
+				<ScrollItem label={labels[12].clone()} accent={props.accent} />
+				<ScrollItem label={labels[13].clone()} accent={props.accent} />
+				<ScrollItem label={labels[14].clone()} accent={props.accent} />
+				<ScrollItem label={labels[15].clone()} accent={props.accent} />
+			</container>
+		</container>
+	}
+}
+
+fn MultiTouchScrollTest(_: ()) -> Box<dyn Element> {
+	rsml! {
+		<container
+			direction={Direction::Row}
+			gap={12}
+			h_fit
+			center
+		>
+			<ScrollPanel
+				title={"Touch scroll A".to_string()}
+				prefix={"left".to_string()}
+				accent={(0x76, 0xe4, 0xb7, 0xff)}
+			/>
+			<ScrollPanel
+				title={"Touch scroll B".to_string()}
+				prefix={"right".to_string()}
+				accent={(0x9d, 0xc7, 0xff, 0xff)}
+			/>
+		</container>
+	}
+}
+
+#[derive(Default)]
 struct LoginCardProps {
 	monitor_label: String,
 }
@@ -224,7 +338,6 @@ fn App(props: ShiftRootProps) -> Box<dyn Element> {
 		monitor.name, monitor.width, monitor.height, monitor.refresh_rate
 	);
 	let footer = format!("Shift monitor id: {}", monitor.id);
-	let input = use_input();
 	rsml! {
 		<container
 			w_expand
@@ -259,16 +372,19 @@ fn App(props: ShiftRootProps) -> Box<dyn Element> {
 				gap={24}
 				padding_all={32}
 			>
-				<LoginCard monitor_label={monitor_label} />
+				<container direction={Direction::Row} gap={24} center>
+					<LoginCard monitor_label={monitor_label} />
+					<MultiTouchScrollTest />
+				</container>
 
 				<text font_size={13} color={(0x8f, 0xa1, 0xb8, 0xff)} text_center>
 					{footer}
 				</text>
 			</container>
 
-			<container background_color={(255,0,0,255)} floating w_fixed={16.} h_fixed={16.} floating_offset={input.with(|i| i.mouse_position())} floating_pointer_capture_mode={PointerCaptureMode::Passthrough} floating_attach_points={(FloatingAttachPointType::LeftTop, FloatingAttachPointType::LeftTop)}>
-
-			</container>
+			<Cursor>
+				<container background_color={(255,0,0,255)} w_fixed={16.} h_fixed={16.} />
+			</Cursor>
 		</container>
 	}
 }

@@ -1115,7 +1115,7 @@ dependencies = [
 [[package]]
 name = "monitor-layout-engine"
 version = "0.1.0"
-source = "git+https://github.com/ardos-os/shift#e36429b50046aa14aa5776568e1cec705f8c6d3d"
+source = "git+https://github.com/ardos-os/shift?tag=tab%2F3.0.0#2c6fdce2c20623c43ad5938b30a9b033a5f79339"
 
 [[package]]
 name = "ndk"
@@ -1913,7 +1913,7 @@ dependencies = [
 [[package]]
 name = "tab-app-framework"
 version = "0.1.0-alpha"
-source = "git+https://github.com/ardos-os/shift#e36429b50046aa14aa5776568e1cec705f8c6d3d"
+source = "git+https://github.com/ardos-os/shift?tag=tab%2F3.0.0#2c6fdce2c20623c43ad5938b30a9b033a5f79339"
 dependencies = [
  "monitor-layout-engine",
  "tab-app-framework-core",
@@ -1924,7 +1924,7 @@ dependencies = [
 [[package]]
 name = "tab-app-framework-core"
 version = "0.1.0-alpha"
-source = "git+https://github.com/ardos-os/shift#e36429b50046aa14aa5776568e1cec705f8c6d3d"
+source = "git+https://github.com/ardos-os/shift?tag=tab%2F3.0.0#2c6fdce2c20623c43ad5938b30a9b033a5f79339"
 dependencies = [
  "anyhow",
  "libc",
@@ -1939,7 +1939,7 @@ dependencies = [
 [[package]]
 name = "tab-app-framework-gl"
 version = "0.1.0-alpha"
-source = "git+https://github.com/ardos-os/shift#e36429b50046aa14aa5776568e1cec705f8c6d3d"
+source = "git+https://github.com/ardos-os/shift?tag=tab%2F3.0.0#2c6fdce2c20623c43ad5938b30a9b033a5f79339"
 dependencies = [
  "anyhow",
  "gbm",
@@ -1955,7 +1955,7 @@ dependencies = [
 [[package]]
 name = "tab-app-framework-xkb"
 version = "0.1.0-alpha"
-source = "git+https://github.com/ardos-os/shift#e36429b50046aa14aa5776568e1cec705f8c6d3d"
+source = "git+https://github.com/ardos-os/shift?tag=tab%2F3.0.0#2c6fdce2c20623c43ad5938b30a9b033a5f79339"
 dependencies = [
  "thiserror 1.0.69",
  "xkbcommon",
@@ -1964,7 +1964,7 @@ dependencies = [
 [[package]]
 name = "tab-client"
 version = "0.1.0-alpha"
-source = "git+https://github.com/ardos-os/shift#e36429b50046aa14aa5776568e1cec705f8c6d3d"
+source = "git+https://github.com/ardos-os/shift?tag=tab%2F3.0.0#2c6fdce2c20623c43ad5938b30a9b033a5f79339"
 dependencies = [
  "gbm",
  "libc",
@@ -1978,8 +1978,8 @@ dependencies = [
 
 [[package]]
 name = "tab-protocol"
-version = "1.0.0"
-source = "git+https://github.com/ardos-os/shift#e36429b50046aa14aa5776568e1cec705f8c6d3d"
+version = "3.0.0"
+source = "git+https://github.com/ardos-os/shift?tag=tab%2F3.0.0#2c6fdce2c20623c43ad5938b30a9b033a5f79339"
 dependencies = [
  "const-str",
  "nix",

@@ -25,6 +25,8 @@ pub use ::winit::platform::android::activity::AndroidApp;
 pub use ardos_ui_rsml_compiler::rsml;
 #[cfg(feature = "clipboard")]
 pub use clipboard::{Clipboard, ClipboardHandle, use_clipboard};
+#[cfg(feature = "shift")]
+pub use element::cursor::{Cursor, CursorProps};
 pub use element::{
 	Element, ElementExt, component::Component, container::*, image::Image, input::*, text::Text,
 	text::TextAlignment, text::TextOverflowMode,
@@ -35,12 +37,12 @@ pub use image::{
 	ImageProviderContext, ImageProviderInstance, ImageProviderPollContext, ImageProviderState,
 	MemoryImage, NetworkImage, SvgImage,
 };
-pub use input::InputManager;
 pub use input::keyboard::*;
 #[cfg(feature = "shift")]
 pub(crate) use input::shift_impl::ShiftInputManager;
 #[cfg(feature = "winit")]
 pub(crate) use input::winit_impl::WinitInputManager;
+pub use input::{InputManager, PointerKind, TouchPoint};
 pub use render_context::RenderContext;
 #[cfg(feature = "shift")]
 pub use shift::{ShiftEventContext, ShiftRootProps, create_window_shift};

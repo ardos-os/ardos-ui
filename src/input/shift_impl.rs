@@ -8,11 +8,13 @@ use smol_str::SmolStr;
 
 use crate::{
 	Key, NamedKey,
-	input::{InputManager, Modifiers},
+	input::{InputManager, Modifiers, PointerKind, TouchPoint},
 };
 
 pub struct ShiftInputManager {
 	mouse_position: (f32, f32),
+	pointer_kind: PointerKind,
+	touch_points: HashMap<u64, (f32, f32)>,
 	mouse_buttons_current: HashMap<u16, bool>,
 	mouse_buttons_previous: HashMap<u16, bool>,
 	mouse_buttons_pressed: HashMap<u16, bool>,
@@ -31,6 +33,8 @@ impl ShiftInputManager {
 	pub fn new() -> Self {
 		Self {
 			mouse_position: (0.0, 0.0),
+			pointer_kind: PointerKind::Mouse,
+			touch_points: HashMap::new(),
 			mouse_buttons_current: HashMap::new(),
 			mouse_buttons_previous: HashMap::new(),
 			mouse_buttons_pressed: HashMap::new(),
@@ -59,6 +63,25 @@ impl ShiftInputManager {
 
 	pub fn set_mouse_position(&mut self, x: f32, y: f32) {
 		self.mouse_position = (x, y);
+	}
+
+	pub fn set_pointer_kind(&mut self, pointer_kind: PointerKind) {
+		self.pointer_kind = pointer_kind;
+	}
+
+	pub fn set_touch_point(&mut self, id: u64, x: f32, y: f32) {
+		self.pointer_kind = PointerKind::Touch;
+		self.touch_points.insert(id, (x, y));
+	}
+
+	pub fn remove_touch_point(&mut self, id: u64) {
+		self.pointer_kind = PointerKind::Touch;
+		self.touch_points.remove(&id);
+	}
+
+	pub fn clear_touch_points(&mut self) {
+		self.pointer_kind = PointerKind::Touch;
+		self.touch_points.clear();
 	}
 
 	pub fn set_mouse_button(&mut self, button: u16, pressed: bool) {
@@ -112,6 +135,18 @@ impl InputManager for ShiftInputManager {
 
 	fn mouse_position(&self) -> (f32, f32) {
 		self.mouse_position
+	}
+
+	fn pointer_kind(&self) -> PointerKind {
+		self.pointer_kind
+	}
+
+	fn touch_points(&self) -> Vec<TouchPoint> {
+		self
+			.touch_points
+			.iter()
+			.map(|(&id, &position)| TouchPoint { id, position })
+			.collect()
 	}
 
 	fn is_mouse_button_pressed(&self, button: u16) -> bool {

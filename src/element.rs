@@ -1,6 +1,8 @@
 pub mod boxed;
 pub mod component;
 pub mod container;
+#[cfg(feature = "shift")]
+pub mod cursor;
 pub mod image;
 pub mod input;
 pub mod option;

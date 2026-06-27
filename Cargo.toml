@@ -21,7 +21,7 @@ uuid = { version = "1.18.1", features = ["v4"] }
 bitflags = "2.12.1"
 ureq = "3.3.0"
 smol_str = "0.3.6"
-tab-app-framework = { git = "https://github.com/ardos-os/shift", version = "0.1.0-alpha", optional = true }
+tab-app-framework = { git = "https://github.com/ardos-os/shift", tag = "tab/3.0.0", version = "0.1.0-alpha", optional = true }
 anyhow = { version = "1", optional = true }
 
 [target.'cfg(all(unix, not(target_os = "android")))'.dependencies.smithay-clipboard]

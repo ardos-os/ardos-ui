@@ -13,9 +13,39 @@ pub struct Modifiers {
 	pub super_key: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PointerKind {
+	#[default]
+	Mouse,
+	Pen,
+	Touch,
+	Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TouchPoint {
+	pub id: u64,
+	pub position: (f32, f32),
+}
+
 pub trait InputManager {
 	/// Get current mouse position
 	fn mouse_position(&self) -> (f32, f32);
+
+	/// Returns the kind of pointer device that most recently drove pointer input.
+	fn pointer_kind(&self) -> PointerKind {
+		PointerKind::Mouse
+	}
+
+	/// Whether applications should render a software cursor for the current input mode.
+	fn cursor_visible(&self) -> bool {
+		!matches!(self.pointer_kind(), PointerKind::Touch)
+	}
+
+	/// Active touch contacts in local UI coordinates.
+	fn touch_points(&self) -> Vec<TouchPoint> {
+		Vec::new()
+	}
 
 	/// Check if mouse button is currently pressed
 	fn is_mouse_button_pressed(&self, button: u16) -> bool;
