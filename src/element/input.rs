@@ -151,11 +151,7 @@ pub fn Input(props: InputProps) -> Box<dyn Element> {
 					insert_text(&mut next, &text);
 					state_changed = true;
 				}
-			} else if key_pressed(
-				input,
-				Key::Named(NamedKey::Backspace),
-				props.repeat,
-			) {
+			} else if key_pressed(input, Key::Named(NamedKey::Backspace), props.repeat) {
 				if !delete_selection(&mut next) && next.cursor > 0 {
 					let byte_index = char_index_to_byte_index(&next.value, next.cursor - 1);
 					next.value.remove(byte_index);

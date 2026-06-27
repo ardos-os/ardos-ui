@@ -454,6 +454,7 @@ impl Container {
 	}
 
 	pub fn clickable_ref(mut self, state: Rc<RefCell<ClickableState>>) -> Self {
+		self.ensure_clickable();
 		self.clickable_state = state;
 		self
 	}

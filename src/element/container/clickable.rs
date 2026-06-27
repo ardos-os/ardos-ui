@@ -199,7 +199,7 @@ mod tests {
 }
 
 impl Container {
-	fn ensure_clickable(&mut self) {
+	pub(super) fn ensure_clickable(&mut self) {
 		if self.clickable.is_none() {
 			self.clickable = Some(Clickable::new());
 		}

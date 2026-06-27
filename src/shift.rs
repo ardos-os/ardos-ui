@@ -62,7 +62,7 @@ pub fn create_window_shift(
 
 	let mut app = GlTabAppFramework::<ShiftApp>::init(|config: &mut Config| {
 		config.opengl_es_version(3, 0);
-		config.set_render_mode(RenderMode::Scheduled);
+		config.set_render_mode(RenderMode::Eager);
 	})?;
 	app.run()?;
 	Ok(())
@@ -149,10 +149,6 @@ impl GlApplication for ShiftApp {
 			.input_manager
 			.borrow_mut()
 			.set_mouse_position(cursor.0 as f32, cursor.1 as f32);
-		state
-			.rlay
-			.input_mut()
-			.set_mouse_position(Point::new(cursor.0 as f32, cursor.1 as f32));
 
 		// The Shift GL framework binds the imported DMA-BUF framebuffer before
 		// calling us. Tell Skia that external GL state changed so cached Ganesh

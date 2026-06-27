@@ -3,8 +3,7 @@
 use std::rc::Rc;
 
 use ardos_ui::{
-	Align, Direction, Element, ElementExt, Input, InputRenderProps, InputRenderer, ShiftRootProps,
-	rsml,
+	Align, Direction, Element, ElementExt, FloatingAttachPointType, Input, InputRenderProps, InputRenderer, PointerCaptureMode, ShiftRootProps, rsml, use_input,
 };
 
 #[derive(Default)]
@@ -70,9 +69,10 @@ fn PasswordInput(_: ()) -> Box<dyn Element> {
 				padding_all={14}
 				rounded={6.0}
 				background_color={(0x12, 0x1b, 0x29, 0xff)}
+				style_if_hovered={|s| s.background_color((0x20, 0x1b, 0x29, 0xff))}
 				border_width={1}
 				border_color={border_color}
-				clickable_ref={input.clickable_ref.clone()}
+				clickable_ref={Rc::clone(&input.clickable_ref)}
 				focusable
 			>
 				<text font_size={12} font_weight={600} color={(0x8f, 0xa1, 0xb8, 0xff)}>
@@ -224,7 +224,7 @@ fn App(props: ShiftRootProps) -> Box<dyn Element> {
 		monitor.name, monitor.width, monitor.height, monitor.refresh_rate
 	);
 	let footer = format!("Shift monitor id: {}", monitor.id);
-
+	let input = use_input();
 	rsml! {
 		<container
 			w_expand
@@ -264,6 +264,10 @@ fn App(props: ShiftRootProps) -> Box<dyn Element> {
 				<text font_size={13} color={(0x8f, 0xa1, 0xb8, 0xff)} text_center>
 					{footer}
 				</text>
+			</container>
+
+			<container background_color={(255,0,0,255)} floating w_fixed={16.} h_fixed={16.} floating_offset={input.with(|i| i.mouse_position())} floating_pointer_capture_mode={PointerCaptureMode::Passthrough} floating_attach_points={(FloatingAttachPointType::LeftTop, FloatingAttachPointType::LeftTop)}>
+
 			</container>
 		</container>
 	}
