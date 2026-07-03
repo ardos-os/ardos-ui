@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Deref;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex, mpsc::Receiver};
 
 use crate::{GlobalClosure, InputManager};
 
@@ -250,6 +251,136 @@ where
 		*memoized_value.borrow_mut() = Some((hash, Rc::new(value)));
 	}
 	memoized_value.borrow().as_ref().unwrap().1.clone()
+}
+
+/// React-style callback memoization.
+///
+/// The returned callback keeps the same `Rc` identity while `deps` hash to the
+/// same value. Hooks that care about callback identity can use `Rc::ptr_eq` to
+/// detect when the callback changed.
+pub fn use_callback<F, D>(callback: F, deps: D) -> Rc<F>
+where
+	F: 'static,
+	D: Hash + 'static,
+{
+	use_memo(|| callback, deps)
+}
+
+pub struct ExternalStoreSubscription<T> {
+	pub receiver: Receiver<T>,
+	pub unsubscribe: Box<dyn FnOnce() + Send>,
+}
+
+impl<T> ExternalStoreSubscription<T> {
+	pub fn new(receiver: Receiver<T>, unsubscribe: impl FnOnce() + Send + 'static) -> Self {
+		Self {
+			receiver,
+			unsubscribe: Box::new(unsubscribe),
+		}
+	}
+}
+
+struct ExternalStoreState<T, Subscribe>
+where
+	Subscribe: Fn() -> ExternalStoreSubscription<T> + 'static,
+{
+	subscribe: Option<Rc<Subscribe>>,
+	snapshot: Option<T>,
+	pending: Arc<Mutex<Vec<T>>>,
+	unsubscribe: Option<Box<dyn FnOnce() + Send>>,
+}
+
+impl<T, Subscribe> ExternalStoreState<T, Subscribe>
+where
+	Subscribe: Fn() -> ExternalStoreSubscription<T> + 'static,
+{
+	fn new() -> Self {
+		Self {
+			subscribe: None,
+			snapshot: None,
+			pending: Arc::new(Mutex::new(Vec::new())),
+			unsubscribe: None,
+		}
+	}
+}
+
+impl<T, Subscribe> Drop for ExternalStoreState<T, Subscribe>
+where
+	Subscribe: Fn() -> ExternalStoreSubscription<T> + 'static,
+{
+	fn drop(&mut self) {
+		if let Some(unsubscribe) = self.unsubscribe.take() {
+			unsubscribe();
+		}
+	}
+}
+
+/// Subscribes a component to an external data source.
+///
+/// This follows the same shape as React's `useSyncExternalStore`: `get_snapshot`
+/// returns the best currently available value, while `subscribe` connects to
+/// future updates. If `get_snapshot` cannot produce a value yet, return `None`;
+/// the hook will return `None` until the subscription channel yields.
+///
+/// If the `subscribe` callback identity changes, the old subscription is
+/// unsubscribed and a new one is created. Use [`use_callback`] to make that
+/// identity depend on the store being watched.
+pub fn use_sync_external_store<T, Subscribe, GetSnapshot>(
+	subscribe: Rc<Subscribe>,
+	get_snapshot: GetSnapshot,
+) -> Option<T>
+where
+	T: Clone + Send + 'static,
+	Subscribe: Fn() -> ExternalStoreSubscription<T> + 'static,
+	GetSnapshot: Fn() -> Option<T>,
+{
+	let state = use_ref::<ExternalStoreState<T, Subscribe>>(ExternalStoreState::new());
+	let mut state = state.borrow_mut();
+
+	let needs_resubscribe = state
+		.subscribe
+		.as_ref()
+		.is_none_or(|previous| !Rc::ptr_eq(previous, &subscribe));
+
+	if needs_resubscribe {
+		if let Some(unsubscribe) = state.unsubscribe.take() {
+			unsubscribe();
+		}
+
+		state.snapshot = get_snapshot();
+		state.pending = Arc::new(Mutex::new(Vec::new()));
+		state.subscribe = Some(Rc::clone(&subscribe));
+
+		let ExternalStoreSubscription {
+			receiver,
+			unsubscribe,
+		} = subscribe();
+		let pending = Arc::clone(&state.pending);
+		std::thread::spawn(move || {
+			while let Ok(value) = receiver.recv() {
+				if let Ok(mut pending) = pending.lock() {
+					pending.push(value);
+				}
+				crate::request_external_redraw();
+			}
+		});
+		state.unsubscribe = Some(unsubscribe);
+	} else if state.snapshot.is_none() {
+		state.snapshot = get_snapshot();
+	}
+
+	let pending_values = {
+		let mut pending = state
+			.pending
+			.lock()
+			.expect("external store pending queue mutex poisoned");
+		pending.drain(..).collect::<Vec<_>>()
+	};
+	for value in pending_values {
+		state.snapshot = Some(value);
+	}
+
+	state.snapshot.clone()
 }
 #[cfg(test)]
 mod tests {

@@ -119,6 +119,12 @@ impl GlobalClosure for std::thread::LocalKey<RefCell<Box<dyn Fn()>>> {
 		self.with(|r| r.borrow()())
 	}
 }
+
+pub(crate) fn request_external_redraw() {
+	#[cfg(feature = "winit")]
+	winit::request_external_redraw();
+}
+
 /// Creates and displays a Ardos UI window with a declarative root component.
 ///
 /// This function sets up the entire environment required to render a graphical interface
@@ -220,7 +226,6 @@ fn build_window_winit<Props: Default + Clone + 'static>(
 	#[cfg(feature = "clipboard")]
 	let clipboard: Rc<RefCell<Option<ClipboardHandle>>> = Rc::new(RefCell::new(None));
 	let props = Props::default();
-
 	let winit_app = WinitApp::new(
 		options,
 		Callbacks {

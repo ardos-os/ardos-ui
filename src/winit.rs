@@ -15,13 +15,14 @@ use skia_safe::gpu::{self, DirectContext};
 use skia_safe::{Color, ColorType};
 use std::num::NonZeroU32;
 use std::rc::Rc;
+use std::sync::{Mutex, OnceLock};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize, Position, Size};
 use winit::event::{
 	ButtonSource, ElementState, Ime, KeyEvent, MouseScrollDelta, PointerSource, TouchPhase,
 	WindowEvent,
 };
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::ModifiersState;
 use winit::raw_window_handle::HasWindowHandle;
 use winit::window::{
@@ -30,6 +31,20 @@ use winit::window::{
 };
 
 use crate::REQUEST_REDRAW;
+
+static EVENT_LOOP_PROXY: OnceLock<Mutex<Option<EventLoopProxy>>> = OnceLock::new();
+
+pub(crate) fn request_external_redraw() {
+	let Some(proxy) = EVENT_LOOP_PROXY
+		.get()
+		.and_then(|proxy| proxy.lock().ok())
+		.and_then(|proxy| proxy.clone())
+	else {
+		return;
+	};
+	proxy.wake_up();
+}
+
 impl ApplicationHandler for WinitApp {
 	fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
 		let (window, gl_config) = match DisplayBuilder::new()
@@ -236,6 +251,13 @@ impl ApplicationHandler for WinitApp {
 				window.request_redraw();
 			}
 		}
+	}
+
+	fn proxy_wake_up(&mut self, _event_loop: &dyn ActiveEventLoop) {
+		let Some(SurfaceAndWindow { window, .. }) = self.window.as_mut() else {
+			return;
+		};
+		window.request_redraw();
 	}
 
 	fn destroy_surfaces(&mut self, _event_loop: &dyn ActiveEventLoop) {
@@ -502,6 +524,12 @@ impl WinitApp {
 	}
 	pub(crate) fn run(self) {
 		let event_loop = EventLoop::new().unwrap();
+		let proxy = event_loop.create_proxy();
+		EVENT_LOOP_PROXY
+			.get_or_init(|| Mutex::new(None))
+			.lock()
+			.expect("event loop proxy mutex poisoned")
+			.replace(proxy);
 		event_loop.set_control_flow(ControlFlow::Wait);
 		event_loop.run_app(self).unwrap();
 	}
@@ -516,6 +544,12 @@ impl WinitApp {
 			Err(EventLoopError::RecreationAttempt) => return,
 			Err(err) => panic!("{err}"),
 		};
+		let proxy = event_loop.create_proxy();
+		EVENT_LOOP_PROXY
+			.get_or_init(|| Mutex::new(None))
+			.lock()
+			.expect("event loop proxy mutex poisoned")
+			.replace(proxy);
 		event_loop.set_control_flow(ControlFlow::Wait);
 		event_loop.run_app(self).unwrap();
 	}

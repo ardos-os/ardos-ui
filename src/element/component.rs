@@ -35,10 +35,7 @@ impl Component {
 	///
 	/// Wrapping a function component in a `Component` is NOT equivalent to just calling the function directly.
 	/// This is because `Component` creates a new context for the component function, allowing hooks to be properly scoped and isolated from the parent component, otherwise, hooks in the component function will be executed on behalf of the parent component, causing undefined behavior.
-	pub fn new_with_props<Props: Default>(
-		func: impl FnOnce(Props) -> Box<dyn Element>,
-		props: Props,
-	) -> Self {
+	pub fn new_with_props<Props>(func: impl FnOnce(Props) -> Box<dyn Element>, props: Props) -> Self {
 		Self {
 			child: {
 				begin_component(format!(
